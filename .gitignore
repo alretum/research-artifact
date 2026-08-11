@@ -1,0 +1,35 @@
+# Course materials — TUM lecture content, not ours to redistribute (PLAN.md D13).
+# ~495 MB, mostly MP4 recordings. Keep out of git entirely; document provenance in
+# corpus/manifest.yml instead, and describe how to obtain the material in README.md.
+corpus/
+
+# Run outputs: JSONL logs, SQLite pools, vector indexes
+data/
+
+# Gradle / Java
+.gradle/
+build/
+bin/
+out/
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# macOS
+.DS_Store
+
+# Local config that may hold credentials (Logos / Azure / Pyris tokens).
+# Spring reads src/main/resources/application-local.yml by default, so match any location.
+**/application-local.yml
+**/application-local.yaml
+**/*-local.yml
+**/*-local.yaml
+*.env
+.env
+
+# Run output is gitignored (see data/), but artefacts cited as evidence in THESIS_NOTES.md
+# are kept under evidence/ deliberately.
+!evidence/

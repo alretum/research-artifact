@@ -1,0 +1,61 @@
+spring:
+  main:
+    web-application-type: none
+    banner-mode: off
+  ai:
+    model:
+      chat: openai
+      embedding: openai
+    openai:
+      base-url: http://localhost:11434/v1
+      api-key: ollama
+      microsoft-foundry: false
+      timeout: 10m
+      chat:
+        options:
+          model: gpt-oss:20b
+          temperature: 0.7
+      embedding:
+        options:
+          model: nomic-embed-text
+    retry:
+      max-attempts: 1
+      backoff:
+        initial-interval: 1000ms
+        multiplier: 2.0
+        max-interval: 30000ms
+
+mcq:
+  corpus-path: corpus
+  run-log-path: data/run-log.jsonl
+  items-markdown-path: data/items.md
+  extraction-report-path: data/extraction-report.csv
+  topic-report-path: data/topics.csv
+  retrieval-probe-path: data/retrieval-probe.csv
+  topics-file: ""
+  competency-manifest: config/competencies.yml
+  language: en
+  difficulty: 50
+  chunking:
+    target-tokens: 500
+    max-tokens: 1200
+    index-path: data/index.json
+  retrieval:
+    top-k: 8
+    max-grounding-tokens: 6000
+  generation:
+    model: gpt-oss:20b
+    temperature: 0.7
+    max-attempts: 3
+  filter:
+    model: gpt-oss:20b
+    temperature: 0.2
+    max-attempts: 3
+    accept-threshold: 0.7
+
+logging:
+  level:
+    root: warn
+    de.tum.cit.aet.artemis.hyperion.mcq: info
+  pattern:
+    console: "%d{HH:mm:ss} %-5level %msg%n"

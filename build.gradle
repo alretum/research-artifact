@@ -1,0 +1,43 @@
+plugins {
+    id "java"
+    id "org.springframework.boot" version "${spring_boot_version}"
+    id "io.spring.dependency-management" version "1.1.7"
+}
+
+group = "de.tum.cit.aet.artemis.hyperion.mcq"
+version = "0.1.0-SNAPSHOT"
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation "org.springframework.boot:spring-boot-starter"
+    implementation "org.springframework.boot:spring-boot-starter-validation"
+
+    // One OpenAI-compatible client serves Ollama, LM Studio, Azure and Logos alike.
+    implementation platform("org.springframework.ai:spring-ai-bom:${spring_ai_version}")
+    implementation "org.springframework.ai:spring-ai-starter-model-openai"
+
+    implementation "org.apache.pdfbox:pdfbox:${pdfbox_version}"
+
+
+    testImplementation "org.springframework.boot:spring-boot-starter-test"
+    testImplementation "org.junit.jupiter:junit-jupiter:${junit_version}"
+    testImplementation "org.assertj:assertj-core:${assertj_version}"
+}
+
+tasks.named("test") {
+    useJUnitPlatform()
+}
+
+// M0 runs as a CLI, not a server.
+tasks.named("bootRun") {
+    standardInput = System.in
+}

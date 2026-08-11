@@ -1,0 +1,282 @@
+# Competency manifest for the Operations Research corpus.
+#
+# Mirrors Artemis's competency model field for field, so this file ports to Atlas entities
+# without translation:
+#   title / description / taxonomy   -> BaseCompetency
+#   optional                         -> CourseCompetency.optional
+#   lectureUnits[] / exercises[]     -> CompetencyLectureUnitLink / CompetencyExerciseLink (with weight)
+#   relations[]                      -> CompetencyRelation (tail -> head, ASSUMES | EXTENDS | MATCHES)
+#   knowledgeArea                    -> KnowledgeArea
+#
+# taxonomy is one of: REMEMBER, UNDERSTAND, APPLY, ANALYZE, EVALUATE, CREATE
+#
+# The lecture decks are authoritative for what the course covers; the outline slide printed on page 2
+# of every deck supplies the vocabulary and grouping. Every substantive deck therefore has a
+# competency, including decks absent from the outline. `document` paths are
+# corpus-relative and must match exactly. `query` overrides the retrieval query when the title
+# alone is a poor embedding target; otherwise title and description are used.
+#
+# DRAFT: taxonomy levels and relations are pedagogical judgements and need review.
+
+course:
+  key: or
+  title: Operations Research
+  description: >-
+    Linear, integer and nonlinear optimization: modeling, solution algorithms, duality,
+    sensitivity analysis, and combinatorial problems on graphs.
+
+competencies:
+
+  - key: lp-modeling
+    title: Linear Programming Modeling
+    knowledgeArea: Linear Optimization
+    taxonomy: APPLY
+    description: |-
+      - You translate a verbal decision problem into a linear program.
+      - You identify decision variables, objective function and constraints.
+      - You solve two-variable linear programs graphically.
+      - You recognise when a linear formulation is inappropriate.
+    lectureUnits:
+      - document: 01 Linear Programming - Modeling/2 Linear programming.pdf
+    exercises:
+      - document: 01 Linear Programming - Modeling/Tutorial 1 Exercises.pdf
+      - document: 01 Linear Programming - Modeling/CE 1 Exercises.pdf
+
+  - key: lp-convexity
+    title: Linear Programs Convexity
+    knowledgeArea: Linear Optimization
+    taxonomy: UNDERSTAND
+    query: convexity of the feasible region, polyhedra, vertices, basic feasible solutions
+    description: |-
+      - You explain why the feasible region of a linear program is convex.
+      - You relate vertices of the feasible region to basic feasible solutions.
+      - You argue why an optimum is attained at a vertex.
+    lectureUnits:
+      - document: 02 Linear Programming - Simplex/3 Linear programming.pdf
+    relations:
+      - type: ASSUMES
+        target: lp-modeling
+
+  - key: lp-simplex
+    title: Simplex Algorithm
+    knowledgeArea: Linear Optimization
+    taxonomy: APPLY
+    query: simplex algorithm, pivot column and row selection, tableau iterations, two-phase simplex
+    description: |-
+      - You execute simplex iterations on a tableau by hand.
+      - You choose pivot column and pivot row correctly.
+      - You apply the two-phase simplex method when no initial basic feasible solution exists.
+      - You detect unboundedness and infeasibility from the tableau.
+    lectureUnits:
+      - document: 02 Linear Programming - Simplex/4 Linear programming.pdf
+    exercises:
+      - document: 02 Linear Programming - Simplex/Tutorials 2 Exercises.pdf
+      - document: 02 Linear Programming - Simplex/CE 2 Exercises.pdf
+    relations:
+      - type: ASSUMES
+        target: lp-convexity
+
+  - key: lp-matrix-simplex
+    title: Revised Simplex Method
+    knowledgeArea: Linear Optimization
+    taxonomy: APPLY
+    query: simplex in matrix notation, revised simplex, basis inverse, goal programming
+    description: |-
+      - You express simplex iterations in matrix notation.
+      - You compute reduced costs from the basis inverse.
+      - You formulate and solve goal programming problems.
+    lectureUnits:
+      - document: 03 Linear Programming - Revised Simplex/5 Linear programming.pdf
+    exercises:
+      - document: 03 Linear Programming - Revised Simplex/Tutorials 3 Exercises.pdf
+      - document: 03 Linear Programming - Revised Simplex/CE 3 Exercises.pdf
+    relations:
+      - type: EXTENDS
+        target: lp-simplex
+
+  - key: lp-sensitivity
+    title: Sensitivity Analysis
+    knowledgeArea: Linear Optimization
+    taxonomy: ANALYZE
+    query: sensitivity analysis, shadow prices, ranging of coefficients, reoptimization after data changes
+    description: |-
+      - You determine how far a cost coefficient may change before the optimal basis changes.
+      - You interpret shadow prices of constraints.
+      - You reoptimize after a change to the right-hand side.
+    lectureUnits:
+      - document: 03 Linear Programming - Revised Simplex/6 Sensitivity.pdf
+    relations:
+      - type: ASSUMES
+        target: lp-matrix-simplex
+
+  - key: lp-duality
+    title: Duality Theory
+    knowledgeArea: Linear Optimization
+    taxonomy: ANALYZE
+    query: weak and strong duality, complementary slackness, dual simplex, zero-sum games
+    description: |-
+      - You construct the dual of a given linear program.
+      - You apply weak and strong duality to bound objective values.
+      - You use complementary slackness to verify optimality.
+      - You model a zero-sum game as a pair of dual linear programs.
+    lectureUnits:
+      - document: 05 Linear Programming - Duality/7 Duality.pdf
+    exercises:
+      - document: 05 Linear Programming - Duality/Tutorials 4 Exercises.pdf
+      - document: 05 Linear Programming - Duality/CE 4 Exercises.pdf
+    relations:
+      - type: ASSUMES
+        target: lp-sensitivity
+
+  - key: ip-modeling
+    title: Integer Programming Modeling
+    knowledgeArea: Integer Optimization
+    taxonomy: APPLY
+    query: integer programming formulations, binary variables, logical constraints, big-M modeling
+    description: |-
+      - You formulate combinatorial decisions using binary variables.
+      - You encode logical conditions as linear constraints.
+      - You explain why rounding an LP relaxation can be arbitrarily bad.
+    lectureUnits:
+      - document: 06 Integer Programming - Modeling/8 IP.pdf
+    relations:
+      - type: ASSUMES
+        target: lp-modeling
+
+  - key: ip-solution-methods
+    title: Branch And Bound
+    knowledgeArea: Integer Optimization
+    taxonomy: APPLY
+    query: branch and bound, cutting planes, Gomory cuts, LP relaxation bounds, pruning
+    description: |-
+      - You run branch and bound on a small integer program.
+      - You use LP relaxation bounds to prune subproblems.
+      - You derive cutting planes to tighten a formulation.
+    lectureUnits:
+      - document: 07 Integer Programming - Solution Methods/9 IP.pdf
+    relations:
+      - type: ASSUMES
+        target: ip-modeling
+
+  - key: ip-column-generation
+    title: Column Generation
+    knowledgeArea: Integer Optimization
+    taxonomy: ANALYZE
+    query: column generation, restricted master problem, pricing subproblem, Dantzig-Wolfe decomposition
+    description: |-
+      - You separate a problem into a restricted master and a pricing subproblem.
+      - You explain when column generation is preferable to enumeration.
+      - You interpret the pricing problem as a search for a negative reduced cost.
+    lectureUnits:
+      - document: 08 Integer Programming - Polyno___Time Solvable Integer Problems/10 CG.pdf
+    relations:
+      - type: EXTENDS
+        target: ip-solution-methods
+
+  - key: ip-unimodularity
+    title: Total Unimodularity Matroids
+    knowledgeArea: Integer Optimization
+    taxonomy: ANALYZE
+    query: total unimodularity, integral polyhedra, matroids, greedy algorithm optimality
+    description: |-
+      - You test a matrix for total unimodularity.
+      - You explain why totally unimodular constraints yield integral optima.
+      - You identify matroid structure and apply the greedy algorithm.
+    lectureUnits:
+      - document: 08 Integer Programming - Polyno___Time Solvable Integer Problems/11 TU Matroid.pdf
+    relations:
+      - type: ASSUMES
+        target: ip-modeling
+
+  - key: ip-network-flow
+    title: Network Flow Problems
+    knowledgeArea: Integer Optimization
+    taxonomy: APPLY
+    query: maximum flow, minimum cut, min-cost flow, residual networks, augmenting paths
+    description: |-
+      - You formulate maximum flow and min-cost flow as linear programs.
+      - You compute a maximum flow using augmenting paths.
+      - You relate a maximum flow to a minimum cut.
+    lectureUnits:
+      - document: 09 Integer Programming - Network Flow Problems/12 Network Flow.pdf
+    exercises:
+      - document: 09 Integer Programming - Network Flow Problems/Tutorial 8 Exercises.pdf
+      - document: 09 Integer Programming - Network Flow Problems/CE 8 Exercises.pdf
+    relations:
+      - type: ASSUMES
+        target: ip-unimodularity
+
+  - key: ip-tsp
+    title: Travelling Salesperson Problem
+    knowledgeArea: Integer Optimization
+    taxonomy: ANALYZE
+    query: travelling salesperson problem, subtour elimination constraints, TSP heuristics, approximation
+    description: |-
+      - You formulate the TSP with subtour elimination constraints.
+      - You explain why the number of subtour constraints is exponential.
+      - You apply a construction or improvement heuristic and bound its quality.
+    lectureUnits:
+      - document: 10 Integer Programming - Travelling Salesperson Problem/13 TSP.pdf
+    relations:
+      - type: ASSUMES
+        target: ip-network-flow
+
+  - key: nlp-multidimensional
+    title: Multidimensional Function Optimization
+    knowledgeArea: Nonlinear Optimization
+    taxonomy: APPLY
+    query: unconstrained optimization of multivariable functions, gradient, Hessian, first and second order conditions
+    description: |-
+      - You find stationary points using first-order conditions.
+      - You classify stationary points with the Hessian.
+      - You apply an iterative descent method.
+    lectureUnits:
+      - document: 10 Integer Programming - Travelling Salesperson Problem/14 Nonlinear Optimization.pdf
+
+  - key: nlp-convex
+    title: Convex Optimization
+    knowledgeArea: Nonlinear Optimization
+    taxonomy: ANALYZE
+    query: convex sets and functions, KKT conditions, Lagrangian duality, convex programs
+    description: |-
+      - You prove a set or function is convex.
+      - You state and apply the KKT conditions.
+      - You explain why local optima of convex programs are global.
+    lectureUnits:
+      - document: 11 Nonlinear  Convex Optimization/15 Convex Optimization.pdf
+    exercises:
+      - document: 11 Nonlinear  Convex Optimization/Exercise Sheet 11.pdf
+      - document: 11 Nonlinear  Convex Optimization/10_uebungsaufgaben.pdf
+    relations:
+      - type: ASSUMES
+        target: nlp-multidimensional
+      - type: EXTENDS
+        target: lp-duality
+
+  - key: online-optimization
+    title: Online Optimization
+    knowledgeArea: Nonlinear Optimization
+    taxonomy: UNDERSTAND
+    query: online optimization, competitive ratio, decisions under incomplete information, online algorithms
+    description: |-
+      - You explain how online decision making differs from offline optimization.
+      - You reason about the quality of a decision made without full information.
+      - You relate an online algorithm's performance to an offline optimum.
+    lectureUnits:
+      - document: 11 Nonlinear  Convex Optimization/16_Online_Optimization.pdf
+    relations:
+      - type: EXTENDS
+        target: nlp-convex
+
+  - key: or-foundations
+    title: Operations Research Foundations
+    knowledgeArea: Linear Optimization
+    taxonomy: REMEMBER
+    optional: true
+    query: what operations research is, typical application problems, modeling workflow, solver tooling
+    description: |-
+      - You state what Operations Research is and where it applies.
+      - You recognise problem classes that optimization addresses.
+      - You name the solver tooling used in the course.
+    lectureUnits:
+      - document: 01 Linear Programming - Modeling/1 Introduction.pdf
