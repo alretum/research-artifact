@@ -15,6 +15,8 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
+import de.tum.cit.aet.artemis.hyperion.mcq.batch.BatchRunner;
+import de.tum.cit.aet.artemis.hyperion.mcq.batch.BatchRunner.TopicQuery;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.CallRecord;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.Chunk;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.GroundingContext;
@@ -33,7 +35,9 @@ import de.tum.cit.aet.artemis.hyperion.mcq.ingest.PageChunker;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.TopicCatalogue;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.TopicCatalogue.Topic;
 import de.tum.cit.aet.artemis.hyperion.mcq.retrieval.EmbeddingSnippetSource;
+import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore;
 import de.tum.cit.aet.artemis.hyperion.mcq.telemetry.CompositionReporter;
+import de.tum.cit.aet.artemis.hyperion.mcq.telemetry.RunExporter;
 import de.tum.cit.aet.artemis.hyperion.mcq.telemetry.RunLogWriter;
 
 /**
@@ -69,8 +73,10 @@ public class PipelineRunner implements ApplicationRunner {
 
     private final CompositionReporter compositionReporter;
 
+    private final RunExporter exporter;
+
     public PipelineRunner(PipelineProperties properties, EmbeddingModel embeddingModel, ChatClient.Builder chatClientBuilder, GroundingAssemblyService groundingAssembly,
-            McqGenerationService generation, McqFilterService filter, RunLogWriter runLog, ExtractionReportWriter reportWriter, CompositionReporter compositionReporter) {
+            McqGenerationService generation, McqFilterService filter, RunLogWriter runLog, ExtractionReportWriter reportWriter, CompositionReporter compositionReporter, RunExporter exporter) {
         this.properties = properties;
         this.embeddingModel = embeddingModel;
         this.chatClientBuilder = chatClientBuilder;
@@ -80,16 +86,20 @@ public class PipelineRunner implements ApplicationRunner {
         this.runLog = runLog;
         this.reportWriter = reportWriter;
         this.compositionReporter = compositionReporter;
+        this.exporter = exporter;
     }
+
+    private ApplicationArguments arguments;
 
     @Override
     public void run(ApplicationArguments args) {
+        this.arguments = args;
         if (args.containsOption("report")) {
             compositionReporter.report(Path.of(properties.runLogPath()));
             return;
         }
 
-        String runId = UUID.randomUUID().toString().substring(0, 8);
+        String runId = args.containsOption("resume") ? args.getOptionValues("resume").getFirst() : UUID.randomUUID().toString().substring(0, 8);
         int count = intArg(args, "count", 1);
 
         Indexed indexed = buildIndex();
@@ -105,45 +115,48 @@ public class PipelineRunner implements ApplicationRunner {
         }
 
         ChatClient chatClient = chatClientBuilder.build();
-        Path runLogPath = Path.of(properties.runLogPath());
-        Path itemsPath = Path.of(properties.itemsMarkdownPath());
-        Map<String, Integer> failures = new HashMap<>();
-        int accepted = 0;
-        long start = System.nanoTime();
+        try (RunStore store = new RunStore(java.nio.file.Path.of(properties.batch().databasePath()))) {
+            store.registerRun(runId, properties.configurationId(), manifest(indexed));
 
-        for (int i = 0; i < count; i++) {
-            Topic topic = topics.get(i % topics.size());
-            log.info("--- item {}/{} | topic: {}", i + 1, count, topic.query());
+            BatchRunner batch = new BatchRunner(store, batchSettings(runId), new BatchRunner.Dependencies(indexed.source(), groundingAssembly, generation, filter, chatClient,
+                    topics.stream().map(topic -> new TopicQuery(topic.key(), topic.query())).toList()));
 
-            GroundingContext grounding = groundingAssembly.assemble(topic.query(), indexed.source().search(topic.query(), properties.retrieval().topK(), null),
-                    properties.retrieval().maxGroundingTokens());
+            int created = batch.enqueue(count);
+            log.info("Run {}: {} items enqueued ({} new), states {}", runId, count, created, store.stateCounts(runId));
 
-            var generated = generation.generate(grounding, properties.difficulty(), properties.language(), properties.generation().model(), properties.generation().temperature(),
-                    properties.generation().maxAttempts(), chatClient);
-            if (!generated.succeeded()) {
-                failures.merge(generated.failure().name(), 1, Integer::sum);
-                log.warn("Generation failed: {} after {} ms", generated.failure(), generated.call().wallClockMs());
-                continue;
-            }
+            long start = System.nanoTime();
+            int processed = batch.run();
+            long seconds = (System.nanoTime() - start) / 1_000_000_000;
 
-            var judged = filter.evaluate(generated.item(), grounding, properties.filter().acceptThreshold(), properties.filter().model(), properties.filter().temperature(),
-                    properties.filter().maxAttempts(), chatClient);
-            if (judged.decision() != null && judged.decision().accepted()) {
-                accepted++;
-            }
-
-            RunRecord record = new RunRecord(RunRecord.SCHEMA_VERSION, runId, properties.configurationId(), generated.item(),
-                    provenance(runId, topic.query(), grounding, generated.item(), generated.prompt()), judged.decision(), List.of(generated.call(), judged.call()));
-            runLog.append(runLogPath, record);
-            runLog.appendMarkdown(itemsPath, record);
-            runLog.logSummary(record);
-            logTiming(generated.call(), judged.call());
+            log.info("=== run {} ===", runId);
+            log.info("processed {} units in {} s, states now {}", processed, seconds, store.stateCounts(runId));
+            log.info("complete: {}", store.isComplete(runId));
+            exporter.export(store, runId, Path.of(properties.runLogPath()), Path.of(properties.itemsMarkdownPath()));
         }
-
-        summarise(runId, count, accepted, failures, start, runLogPath);
     }
 
+
     private record Indexed(EmbeddingSnippetSource source, List<Topic> topics) {
+    }
+
+    /**
+     * Settings that must not change between the start of a run and its resumption, rendered for comparison.
+     */
+    private String manifest(Indexed indexed) {
+        return String.join("\n", "generation=" + properties.generation(), "filter=" + properties.filter(), "retrieval=" + properties.retrieval(),
+                "chunking=" + properties.chunking(), "language=" + properties.language(), "difficulty=" + properties.difficulty(), "chunks=" + indexed.source().size(),
+                "topics=" + indexed.topics().stream().map(Topic::key).toList());
+    }
+
+    private BatchRunner.Settings batchSettings(String runId) {
+        return new BatchRunner.Settings(runId, properties.configurationId(), properties.retrieval().topK(), properties.retrieval().maxGroundingTokens(), properties.difficulty(),
+                properties.language(), properties.generation().model(), properties.generation().temperature(), properties.generation().maxAttempts(), properties.filter().model(),
+                properties.filter().temperature(), properties.filter().maxAttempts(), properties.filter().acceptThreshold(), properties.batch().maxOutputAttempts(),
+                intArgOrDefault("concurrency", properties.batch().concurrency()));
+    }
+
+    private int intArgOrDefault(String name, int fallback) {
+        return arguments == null || !arguments.containsOption(name) ? fallback : Integer.parseInt(arguments.getOptionValues(name).getFirst());
     }
 
     /**
@@ -234,28 +247,8 @@ public class PipelineRunner implements ApplicationRunner {
         return fromCorpus.stream().filter(Topic::grounded).toList();
     }
 
-    private ItemProvenance provenance(String runId, String topic, GroundingContext grounding, McqItem item, String prompt) {
-        List<String> chunkIds = grounding.snippets().stream().map(snippet -> snippet.chunkId()).toList();
-        boolean damaged = CorpusLoader.looksDamaged(item.questionText()) || item.options().stream().anyMatch(option -> CorpusLoader.looksDamaged(option.text()));
-        return new ItemProvenance(runId, properties.configurationId(), properties.generation().model(), properties.filter().model(), topic, chunkIds, prompt, properties.difficulty(),
-                LengthStats.of(item), damaged, grounding.composition(), Instant.now());
-    }
 
-    private static void logTiming(CallRecord generation, CallRecord filter) {
-        log.info("Timing: generation {} ms ({} in / {} out tokens), filter {} ms ({} in / {} out tokens)", generation.wallClockMs(), generation.promptTokens(),
-                generation.completionTokens(), filter.wallClockMs(), filter.promptTokens(), filter.completionTokens());
-    }
 
-    private void summarise(String runId, int requested, int accepted, Map<String, Integer> failures, long start, Path runLogPath) {
-        long seconds = (System.nanoTime() - start) / 1_000_000_000;
-        log.info("=== run {} complete ===", runId);
-        log.info("requested={} accepted={} failures={} elapsed={}s", requested, accepted, failures.isEmpty() ? "none" : failures, seconds);
-        if (requested > 0 && seconds > 0) {
-            log.info("throughput: {} s/item, {} items/hour", seconds / requested, requested * 3600 / Math.max(1, seconds));
-        }
-        log.info("run log: {}", runLogPath.toAbsolutePath());
-        log.info("readable items: {}", Path.of(properties.itemsMarkdownPath()).toAbsolutePath());
-    }
 
     private static int intArg(ApplicationArguments args, String name, int fallback) {
         if (!args.containsOption(name)) {

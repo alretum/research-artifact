@@ -27,6 +27,8 @@ dependencies {
 
     implementation "org.apache.pdfbox:pdfbox:${pdfbox_version}"
 
+    implementation "org.xerial:sqlite-jdbc:${sqlite_version}"
+
 
     testImplementation "org.springframework.boot:spring-boot-starter-test"
     testImplementation "org.junit.jupiter:junit-jupiter:${junit_version}"
@@ -35,6 +37,7 @@ dependencies {
 
 tasks.named("test") {
     useJUnitPlatform()
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
 }
 
 // M0 runs as a CLI, not a server.

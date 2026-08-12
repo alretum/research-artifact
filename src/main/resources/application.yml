@@ -52,6 +52,10 @@ mcq:
     temperature: 0.2
     max-attempts: 3
     accept-threshold: 0.7
+  batch:
+    database-path: data/run.db
+    concurrency: 1
+    max-output-attempts: 3
 
 logging:
   level:

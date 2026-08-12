@@ -32,7 +32,7 @@ import org.springframework.validation.annotation.Validated;
 public record PipelineProperties(@NotBlank String corpusPath, @NotBlank String runLogPath, @NotBlank String itemsMarkdownPath, @NotBlank String extractionReportPath,
         @NotBlank String topicReportPath, @NotBlank String retrievalProbePath, String topicsFile, String competencyManifest, @NotBlank String language,
         @Min(0) @Max(100) int difficulty, @NotNull @Valid Chunking chunking, @NotNull @Valid Retrieval retrieval, @NotNull @Valid Generation generation,
-        @NotNull @Valid Filter filter) {
+        @NotNull @Valid Filter filter, @NotNull @Valid Batch batch) {
 
     /**
      * @param targetTokens pages are merged until this estimated token count is reached
@@ -65,6 +65,14 @@ public record PipelineProperties(@NotBlank String corpusPath, @NotBlank String r
      */
     public record Filter(@NotBlank String model, @DecimalMin("0.0") @DecimalMax("2.0") double temperature, @Min(1) @Max(10) int maxAttempts,
             @DecimalMin("0.0") @DecimalMax("1.0") double acceptThreshold) {
+    }
+
+    /**
+     * @param databasePath       SQLite file holding durable run and item state
+     * @param concurrency        workers claiming items in parallel; 1 keeps per-item timings attributable
+     * @param maxOutputAttempts  attempts allowed per stage before an item fails permanently
+     */
+    public record Batch(@NotBlank String databasePath, @Min(1) @Max(16) int concurrency, @Min(1) @Max(10) int maxOutputAttempts) {
     }
 
     /**
