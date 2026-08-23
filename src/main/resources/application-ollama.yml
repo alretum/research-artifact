@@ -1,0 +1,25 @@
+# Fully local backend: chat AND embedding on Ollama.
+#
+# The default (see application.yml) runs chat on Logos GPUs and only embedding locally. This profile
+# is the alternative: everything on this machine, no network, no credentials.
+#
+#   ollama pull gpt-oss:20b
+#   ollama pull nomic-embed-text
+#   java -jar build/libs/mcq-pipeline-0.1.0-SNAPSHOT.jar --spring.profiles.active=ollama --count=5
+#
+# Note (THESIS_NOTES.md N6): nothing generated or timed against a local development model belongs in a
+# cost or quality claim. This profile is for development and offline work, not for reportable runs.
+spring:
+  ai:
+    openai:
+      chat:
+        base-url: http://localhost:11434/v1
+        api-key: ollama
+        options:
+          model: gpt-oss:20b
+
+mcq:
+  generation:
+    model: gpt-oss:20b
+  filter:
+    model: gpt-oss:20b

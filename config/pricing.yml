@@ -1,0 +1,57 @@
+# Cost model, applied when reporting and never at write time.
+#
+# Nothing in the pipeline reads this during a run: every call records raw physical quantities
+# (tokens in and out, wall-clock milliseconds, model name), and cost is derived from them afterwards.
+# Revising a price or a GPU rate is therefore a re-report, not a re-run.
+#
+# Token prices are EUR per million tokens, matching the shape of Artemis's
+# LLMModelCostConfiguration so figures reconcile with its admin dashboards.
+
+models:
+
+  # Locally served models have no per-token price. Their cost is GPU time, derived from
+  # gpu.eur-per-hour below and the measured occupancy of each call.
+  "gpt-oss:20b":
+    billing: gpu-time
+  "llama3.1:latest":
+    billing: gpu-time
+
+  # Cloud models are billed per token. Values below are the defaults seeded in Artemis's
+  # LLMModelCostConfiguration; replace with the provider's published prices for the deployment used.
+  "gpt-5-mini":
+    billing: tokens
+    input-eur-per-million: 0.23
+    output-eur-per-million: 1.84
+  "gpt-5.4-mini":
+    billing: tokens
+    input-eur-per-million: 0.69
+    output-eur-per-million: 4.14
+  "gpt-5.4":
+    billing: tokens
+    input-eur-per-million: 2.30
+    output-eur-per-million: 13.80
+
+# GPU cost for locally served models. The proposal leaves the choice of rate open (§4.3), so both
+# bounds are carried and reported as a sensitivity band rather than one number being privileged.
+#
+#   rental       — commercial hourly rate for comparable hardware; reflects opportunity cost
+#   electricity  — marginal energy cost only, appropriate for chair-owned idle hardware
+#
+# Both are placeholders until the hardware and tariff are known. Replace before reporting any figure.
+gpu:
+  rental-eur-per-hour: 1.20
+  electricity-eur-per-hour: 0.08
+
+# How GPU occupancy is derived per call. Logos records the quantities this needs; see PLAN.md §3.4.
+#
+#   occupancy_ms = (timestamp_response - timestamp_forwarding) - (was_cold_start ? load_duration_ms : 0)
+#
+# That equals exclusive occupancy only when nothing else is in flight on the lane, which is why
+# cost-measurement runs use concurrency 1 and throughput runs are reported separately (THESIS_NOTES N5).
+gpu-occupancy:
+  source: logos-log-entry
+  subtract-queue-wait: true
+  subtract-cold-start-load: true
+  # Until Logos telemetry is available, client-side wall-clock stands in. It overstates occupancy
+  # because it includes queueing and network time, so figures derived from it are upper bounds.
+  fallback: client-wall-clock
