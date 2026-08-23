@@ -23,8 +23,8 @@ out/
 
 # Local config that may hold credentials (Logos / Azure / Pyris tokens).
 # Matched in any location. Note these files are profile-specific and are NOT read unless the matching
-# profile is activated (--spring.profiles.active=local). They are ignored because they MAY hold
-# credentials, not because Spring loads them by default.
+# profile is activated -- see README.md section 4. They are ignored because they MAY hold credentials,
+# not because Spring loads them by default.
 **/application-local.yml
 **/application-local.yaml
 **/*-local.yml

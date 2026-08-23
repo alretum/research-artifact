@@ -13,6 +13,7 @@
 #
 # The loopback binding below is a belt-and-braces duplicate: application.yml already defaults to
 # 127.0.0.1, so forgetting the flag does not expose the interface.
+# See README.md section 4.
 
 server:
   # Loopback only. The web interface has no authentication of any kind, so it must never be bound to a
