@@ -199,14 +199,29 @@ public final class Mcq {
 
     /**
      * One LLM call, recorded for successful and failed calls alike.
+     * <p>
+     * {@code outcome} describes the call itself, so a response that arrived but could not be parsed is
+     * {@code "success"} here. {@code failureCategory} describes what the pipeline made of the response and
+     * is the field that distinguishes malformed output from a schema or validation failure. Because these
+     * records accumulate across attempts and are never cleared on eventual success, they preserve the full
+     * attempt history of an item.
      *
      * @param stage           {@code "generation"} or {@code "filter"}
      * @param promptTokens    reported by the provider, {@code null} when unavailable
-     * @param outcome         {@code "success"}, {@code "error"} or {@code "timeout"}
-     * @param errorMessage    {@code null} on success
+     * @param outcome         {@code "success"}, {@code "error"} or {@code "timeout"} for the call
+     * @param errorMessage    {@code null} unless the call itself failed
+     * @param failureCategory why the attempt did not yield a usable result, {@code null} when it did
      */
     public record CallRecord(String requestId, String stage, String model, Integer promptTokens, Integer completionTokens, long wallClockMs, int retryCount, String outcome,
-            String errorMessage) {
+            String errorMessage, String failureCategory) {
+
+        /**
+         * @param category failure category to attach
+         * @return a copy carrying the given category
+         */
+        public CallRecord withFailureCategory(String category) {
+            return new CallRecord(requestId, stage, model, promptTokens, completionTokens, wallClockMs, retryCount, outcome, errorMessage, category);
+        }
     }
 
     /** Item defects the filter judges. */
@@ -226,19 +241,27 @@ public final class Mcq {
     /**
      * Accept/reject outcome together with the scores it was derived from.
      * <p>
-     * The threshold is applied outside the model call, so {@code accepted} can be recomputed from
-     * {@code aggregateScore} without issuing new calls. A decision is only produced when all five
-     * failure modes were judged.
+     * {@code accepted} is exactly {@code aggregateScore >= threshold}, so any decision can be recomputed
+     * at a different threshold from stored data without issuing new calls. A decision is only produced
+     * when all five failure modes were judged.
+     * <p>
+     * The aggregate uses the worst severity rather than the mean: a mean over five modes dilutes a single
+     * disqualifying defect, so an item with one maximum-severity failure and four clean modes would
+     * otherwise score 0.8. Each mode's {@code triggered} flag is the model's own holistic verdict and is
+     * recorded but deliberately not part of the decision, which keeps the decision derivable from the
+     * scores and leaves the flag usable as an independent check on the judge's self-consistency.
      *
-     * @param aggregateScore {@code 1 - mean(severity)} across all modes, so higher is better
+     * @param aggregateScore {@code 1 - max(severity)} across all modes, so higher is better
+     * @param meanSeverity   mean severity across all modes, retained as a descriptive statistic because
+     *                       the aggregate discards accumulation of mild defects
      */
-    public record FilterDecision(boolean accepted, double aggregateScore, Map<FailureMode, ModeVerdict> modeVerdicts, String filterModel, String rationale) {
+    public record FilterDecision(boolean accepted, double aggregateScore, double meanSeverity, Map<FailureMode, ModeVerdict> modeVerdicts, String filterModel, String rationale) {
     }
 
     /** One row of the run log. Rejected items are recorded alongside accepted ones. */
     public record RunRecord(int schemaVersion, String runId, String configurationId, McqItem item, ItemProvenance provenance, FilterDecision filterDecision,
             List<CallRecord> calls) {
 
-        public static final int SCHEMA_VERSION = 1;
+        public static final int SCHEMA_VERSION = 2;
     }
 }

@@ -116,6 +116,67 @@ class McqGenerationServiceTest {
     }
 
     @Test
+    void rejectsAnOptionReferringToTheOptionSet() {
+        respondWith(itemJson("PUT", true, "POST", false, "GET", false, "All of the above", false));
+
+        assertThat(generate().failure()).isEqualTo(Failure.VALIDATION_VIOLATION);
+    }
+
+    @Test
+    void rejectsNoneOfTheAboveRegardlessOfCasing() {
+        respondWith(itemJson("PUT", true, "POST", false, "GET", false, "none of these options", false));
+
+        assertThat(generate().failure()).isEqualTo(Failure.VALIDATION_VIOLATION);
+    }
+
+    @Test
+    void rejectsACorrectOptionThatIsConspicuouslyLongerThanEveryDistractor() {
+        String longCorrect = "the dual attains the same objective value and every complementary slackness condition holds simultaneously";
+        respondWith(itemJson(longCorrect, true, "the dual is unbounded", false, "the primal is infeasible", false, "the gap is positive", false));
+
+        assertThat(generate().failure()).isEqualTo(Failure.VALIDATION_VIOLATION);
+    }
+
+    @Test
+    void rejectsACorrectOptionOnlyFortyPercentLongerWhenThatIsStillManyCharacters() {
+        // 132 characters against 94: a ratio of 1.40, which a ratio-gated rule would have excused, but
+        // 38 characters longer than every alternative is exactly the cue a reader exploits.
+        String correct = "a".repeat(132);
+        respondWith(itemJson(correct, true, "b".repeat(94), false, "c".repeat(90), false, "d".repeat(88), false));
+
+        assertThat(generate().failure()).isEqualTo(Failure.VALIDATION_VIOLATION);
+    }
+
+    @Test
+    void allowsALargeCharacterDifferenceWhenTheOptionsAreLongEnoughForItNotToShow() {
+        // 25 characters more than a 250-character distractor is under 10 percent and not a usable cue.
+        respondWith(itemJson("a".repeat(275), true, "b".repeat(250), false, "c".repeat(248), false, "d".repeat(245), false));
+
+        assertThat(generate().succeeded()).isTrue();
+    }
+
+    @Test
+    void allowsALongerCorrectOptionWhenTheDifferenceIsTooSmallToExploit() {
+        respondWith(itemJson("x* is optimal", true, "x* is dual", false, "x* is basic", false, "x* is free", false));
+
+        assertThat(generate().succeeded()).isTrue();
+    }
+
+    @Test
+    void rejectsAnOptionContainedWholeInsideAnother() {
+        respondWith(itemJson("PUT", true, "PUT and DELETE", false, "POST", false, "GET", false));
+
+        assertThat(generate().failure()).isEqualTo(Failure.VALIDATION_VIOLATION);
+    }
+
+    @Test
+    void allowsCoincidentalSubstringsThatAreNotWholeWords() {
+        respondWith(itemJson("12", true, "2", false, "120", false, "21", false));
+
+        assertThat(generate().succeeded()).isTrue();
+    }
+
+    @Test
     void reportsTransportFailureAfterExhaustingAttempts() {
         when(chatModel.call(any(Prompt.class))).thenThrow(new IllegalStateException("connection refused"));
 

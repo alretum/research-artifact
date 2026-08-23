@@ -1,23 +1,49 @@
+server:
+  # Loopback by default, because this interface has NO authentication of any kind: exposed, POST /runs
+  # lets anyone spend the model budget and /items serves lecture material that may not be redistributable.
+  #
+  # Spring binds every interface unless told otherwise, so this must be the DEFAULT rather than something
+  # a profile opts into -- a safe setting that depends on remembering a flag is not a safe setting.
+  # Overriding it is a deliberate act; read the note in README.md section 5 first.
+  address: 127.0.0.1
+  servlet:
+    session:
+      # Cookies only: without this, a client that sends no cookie gets a ";jsessionid=" appended to
+      # redirect URLs, which Spring then rejects with a 404.
+      tracking-modes: cookie
+
 spring:
   main:
-    web-application-type: none
     banner-mode: off
+  thymeleaf:
+    cache: false
   ai:
     model:
       chat: openai
       embedding: openai
     openai:
-      base-url: http://localhost:11434/v1
-      api-key: ollama
+      # Chat (generation + filtering) runs on Logos GPUs; embedding runs locally (see below).
+      #
+      # These top-level values are the fallback that EVERY spring-ai-openai autoconfiguration reads --
+      # including ones this app never uses, such as audio speech and image. Setting credentials only under
+      # `chat:` and `embedding:` leaves those beans with no credential and the context fails to start with
+      # "At least one credential source must be specified". So the top level carries the chat provider and
+      # `embedding:` overrides it.
+      base-url: ${LOGOS_BASE_URL:https://logos.aet.cit.tum.de/v1}
+      api-key: ${LOGOS_API_KEY:unset}
       microsoft-foundry: false
       timeout: 10m
       chat:
         options:
-          model: gpt-oss:20b
+          model: ${LOGOS_MODEL:openai/gpt-oss-120b}
           temperature: 0.7
+      # Embedding runs locally on CPU via Ollama -- overriding the Logos base-url above. Small enough
+      # that CPU is fine (~137M parameters), and it keeps the corpus off a remote service.
       embedding:
+        base-url: ${EMBEDDING_BASE_URL:http://localhost:11434/v1}
+        api-key: ${EMBEDDING_API_KEY:ollama}
         options:
-          model: nomic-embed-text
+          model: ${EMBEDDING_MODEL:nomic-embed-text}
     retry:
       max-attempts: 1
       backoff:
@@ -35,7 +61,11 @@ mcq:
   topics-file: ""
   competency-manifest: config/competencies.yml
   language: en
-  difficulty: 50
+  # A ladder, walked by each topic independently: item 0 of every topic is generated at 20, item 1 at 40,
+  # and so on. A run therefore spans a range of difficulties instead of one level. A ladder of L levels is
+  # only fully covered once each topic holds L items, so --count should be at least L x (number of topics).
+  # A single value (difficulty: 50) still works and makes every item the same.
+  difficulty: [20, 40, 60, 80]
   chunking:
     target-tokens: 500
     max-tokens: 1200
@@ -44,11 +74,11 @@ mcq:
     top-k: 8
     max-grounding-tokens: 6000
   generation:
-    model: gpt-oss:20b
+    model: ${LOGOS_MODEL:openai/gpt-oss-120b}
     temperature: 0.7
     max-attempts: 3
   filter:
-    model: gpt-oss:20b
+    model: ${LOGOS_MODEL:openai/gpt-oss-120b}
     temperature: 0.2
     max-attempts: 3
     accept-threshold: 0.7

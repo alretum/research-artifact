@@ -54,25 +54,39 @@ class McqFilterServiceTest {
     }
 
     @Test
-    void derivesTheAggregateAsOneMinusMeanSeverity() {
+    void derivesTheAggregateFromTheWorstSeverityNotTheMean() {
         respondWith(verdict(0.5, 0.0, 0.0, 0.0, 0.0, false));
 
-        assertThat(evaluate(0.5).decision().aggregateScore()).isEqualTo(0.9);
+        var decision = evaluate(0.0).decision();
+
+        assertThat(decision.aggregateScore()).isEqualTo(0.5);
+        assertThat(decision.meanSeverity()).isEqualTo(0.1);
     }
 
     @Test
-    void rejectsWhenAnyModeIsTriggeredEvenAtAHighAggregate() {
-        respondWith(verdict(0.1, 0.0, 0.0, 0.0, 0.0, true));
+    void rejectsASingleDisqualifyingDefectThatAMeanWouldDiluteAway() {
+        respondWith(verdict(0.0, 0.0, 0.0, 1.0, 0.0, false));
 
-        var decision = evaluate(0.5).decision();
+        var decision = evaluate(0.7).decision();
 
-        assertThat(decision.aggregateScore()).isGreaterThan(0.5);
+        assertThat(decision.meanSeverity()).isEqualTo(0.2);
+        assertThat(decision.aggregateScore()).isEqualTo(0.0);
         assertThat(decision.accepted()).isFalse();
     }
 
     @Test
+    void ignoresTheTriggeredFlagWhenDeciding() {
+        respondWith(verdict(0.1, 0.0, 0.0, 0.0, 0.0, true));
+
+        var decision = evaluate(0.5).decision();
+
+        assertThat(decision.modeVerdicts().get(FailureMode.FACTUAL_ERROR).triggered()).isTrue();
+        assertThat(decision.accepted()).isTrue();
+    }
+
+    @Test
     void rejectsWhenTheAggregateFallsBelowTheThreshold() {
-        respondWith(verdict(1.0, 1.0, 1.0, 0.0, 0.0, false));
+        respondWith(verdict(0.4, 0.0, 0.0, 0.0, 0.0, false));
 
         assertThat(evaluate(0.7).decision().accepted()).isFalse();
     }

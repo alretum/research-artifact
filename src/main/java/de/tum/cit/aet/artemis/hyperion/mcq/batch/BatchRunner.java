@@ -8,6 +8,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,11 +24,13 @@ import de.tum.cit.aet.artemis.hyperion.mcq.generation.McqGenerationService;
 import de.tum.cit.aet.artemis.hyperion.mcq.grounding.GroundingAssemblyService;
 import de.tum.cit.aet.artemis.hyperion.mcq.grounding.SnippetSource;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CorpusLoader;
+import de.tum.cit.aet.artemis.hyperion.mcq.llm.ChatCall;
 import de.tum.cit.aet.artemis.hyperion.mcq.llm.StructuredOutputs;
 import de.tum.cit.aet.artemis.hyperion.mcq.store.ItemState;
 import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore;
 import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore.Claim;
 import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore.ItemKey;
+import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore.QueuedItem;
 
 import tools.jackson.core.type.TypeReference;
 
@@ -50,6 +53,8 @@ public class BatchRunner {
 
     private final Dependencies dependencies;
 
+    private volatile BooleanSupplier stopRequested = () -> false;
+
     /**
      * Everything the runner needs from the surrounding pipeline.
      *
@@ -69,7 +74,7 @@ public class BatchRunner {
     /**
      * @param maxOutputAttempts attempts allowed per stage before an item fails permanently
      */
-    public record Settings(String runId, String configurationId, int topK, int maxGroundingTokens, int difficulty, String language, String generationModel,
+    public record Settings(String runId, String configurationId, int topK, int maxGroundingTokens, List<Integer> difficultyLevels, String language, String generationModel,
             double generationTemperature, int generationCallAttempts, String filterModel, double filterTemperature, int filterCallAttempts, double acceptThreshold,
             int maxOutputAttempts, int concurrency) {
     }
@@ -81,7 +86,7 @@ public class BatchRunner {
     }
 
     /**
-     * Enqueue work for a run, distributing items across topics in round-robin order.
+     * Enqueue work spread evenly across every available topic.
      * <p>
      * Existing rows are left untouched, so calling this on a resumed run adds only what is missing.
      *
@@ -93,16 +98,58 @@ public class BatchRunner {
         if (topics.isEmpty()) {
             throw new IllegalStateException("No topics available to enqueue work for");
         }
-        List<ItemKey> keys = new ArrayList<>(totalItems);
+        List<QueuedItem> queued = new ArrayList<>(totalItems);
         for (int i = 0; i < totalItems; i++) {
             TopicQuery topic = topics.get(i % topics.size());
-            keys.add(new ItemKey(settings.runId(), settings.configurationId(), topic.key(), i / topics.size()));
+            int itemIndex = i / topics.size();
+            ItemKey key = new ItemKey(settings.runId(), settings.configurationId(), topic.key(), itemIndex);
+            queued.add(new QueuedItem(key, difficultyFor(itemIndex)));
         }
-        return store.enqueue(keys);
+        return store.enqueue(queued);
     }
 
     /**
-     * Work the run to completion.
+     * Enqueue a fixed number of items for each of the named topics.
+     * <p>
+     * Item indices continue from whatever the run already holds for that topic, so enqueueing twice adds
+     * further items rather than colliding with existing ones.
+     *
+     * @param topicKeys     topics to generate for; each must be known to this runner
+     * @param itemsPerTopic items to add per topic
+     * @return the number of rows newly created
+     * @throws IllegalArgumentException if a topic key is not among the available topics
+     */
+    public int enqueueTopics(List<String> topicKeys, int itemsPerTopic) {
+        List<String> known = dependencies.topicQueries().stream().map(TopicQuery::key).toList();
+        List<String> unknown = topicKeys.stream().filter(key -> !known.contains(key)).toList();
+        if (!unknown.isEmpty()) {
+            throw new IllegalArgumentException("Unknown topics: " + unknown);
+        }
+        List<QueuedItem> queued = new ArrayList<>();
+        for (String topicKey : topicKeys) {
+            int offset = store.itemCountForTopic(settings.runId(), settings.configurationId(), topicKey);
+            for (int i = 0; i < itemsPerTopic; i++) {
+                int itemIndex = offset + i;
+                ItemKey key = new ItemKey(settings.runId(), settings.configurationId(), topicKey, itemIndex);
+                queued.add(new QueuedItem(key, difficultyFor(itemIndex)));
+            }
+        }
+        return store.enqueue(queued);
+    }
+
+    /**
+     * Ask the runner to stop claiming new work.
+     * <p>
+     * Items already claimed run to completion and record their results, so nothing in flight is discarded.
+     *
+     * @param stopRequested consulted before each claim
+     */
+    public void onStopRequested(BooleanSupplier stopRequested) {
+        this.stopRequested = stopRequested;
+    }
+
+    /**
+     * Work the run to completion, or until stopping is requested.
      *
      * @return the number of units of work completed by this invocation
      */
@@ -135,6 +182,10 @@ public class BatchRunner {
 
     private void workUntilDrained(AtomicInteger completed) {
         while (!Thread.currentThread().isInterrupted()) {
+            if (stopRequested.getAsBoolean()) {
+                log.info("Stop requested; no further work will be claimed");
+                return;
+            }
             Optional<Claim> claim = store.claimNext(settings.runId());
             if (claim.isEmpty()) {
                 return;
@@ -159,21 +210,37 @@ public class BatchRunner {
         }
     }
 
+    /**
+     * Difficulty for one item, taken from the configured ladder by its position within its topic.
+     * <p>
+     * Indexing by the per-topic position rather than a global counter means every topic walks the same
+     * ladder, so a run covers the same spread of difficulties for each topic instead of correlating
+     * difficulty with topic order. A ladder of L levels is only fully covered once a topic holds L items.
+     *
+     * @param itemIndex position of the item within its topic
+     * @return the target difficulty
+     */
+    private int difficultyFor(int itemIndex) {
+        List<Integer> levels = settings.difficultyLevels();
+        return levels.get(itemIndex % levels.size());
+    }
+
     private void generate(Claim claim) {
         GroundingContext grounding = ground(claim.key().topicKey());
-        var result = dependencies.generation().generate(grounding, settings.difficulty(), settings.language(), settings.generationModel(), settings.generationTemperature(),
+        var result = dependencies.generation().generate(grounding, claim.difficulty(), settings.language(), settings.generationModel(), settings.generationTemperature(),
                 settings.generationCallAttempts(), dependencies.chatClient());
 
         List<CallRecord> calls = append(claim.callsJson(), result.call());
         if (!result.succeeded()) {
-            boolean retry = claim.generationAttempts() + 1 < settings.maxOutputAttempts();
+            boolean permanent = !result.failure().retryable();
+            boolean retry = !permanent && claim.generationAttempts() + 1 < settings.maxOutputAttempts();
             log.warn("Generation of {} failed with {} (attempt {}/{}){}", claim.key(), result.failure(), claim.generationAttempts() + 1, settings.maxOutputAttempts(),
-                    retry ? ", will retry" : ", giving up");
+                    retry ? ", will retry" : permanent ? ", giving up (permanent)" : ", giving up");
             store.recordFailure(claim.key(), ItemState.GENERATING, result.failure().name(), write(calls), retry);
             return;
         }
 
-        ItemProvenance provenance = provenance(claim.key(), grounding, result.item(), result.prompt());
+        ItemProvenance provenance = provenance(claim.key(), claim.difficulty(), grounding, result.item(), result.prompt());
         store.recordGenerated(claim.key(), write(result.item()), write(provenance), write(calls));
         log.info("Generated {} | {}", claim.key().topicKey(), result.item().title());
     }
@@ -190,9 +257,14 @@ public class BatchRunner {
 
         List<CallRecord> calls = append(claim.callsJson(), result.call());
         if (!result.succeeded()) {
-            boolean retry = claim.filterAttempts() + 1 < settings.maxOutputAttempts();
-            log.warn("Filtering of {} failed (attempt {}/{}){}", claim.key(), claim.filterAttempts() + 1, settings.maxOutputAttempts(), retry ? ", will retry" : ", giving up");
-            store.recordFailure(claim.key(), ItemState.FILTERING, "FILTER_UNPARSEABLE", write(calls), retry);
+            // The filter service records why it could not use the response; preserve that rather than
+            // flattening every filter failure into one label.
+            String category = result.call().failureCategory() == null ? "FILTER_UNPARSEABLE" : result.call().failureCategory();
+            boolean permanent = !ChatCall.retryable(category);
+            boolean retry = !permanent && claim.filterAttempts() + 1 < settings.maxOutputAttempts();
+            log.warn("Filtering of {} failed with {} (attempt {}/{}){}", claim.key(), category, claim.filterAttempts() + 1, settings.maxOutputAttempts(),
+                    retry ? ", will retry" : permanent ? ", giving up (permanent)" : ", giving up");
+            store.recordFailure(claim.key(), ItemState.FILTERING, category, write(calls), retry);
             return;
         }
 
@@ -206,10 +278,10 @@ public class BatchRunner {
         return dependencies.groundingAssembly().assemble(topicKey, dependencies.snippetSource().search(query, settings.topK(), null), settings.maxGroundingTokens());
     }
 
-    private ItemProvenance provenance(ItemKey key, GroundingContext grounding, McqItem item, String prompt) {
+    private ItemProvenance provenance(ItemKey key, int difficulty, GroundingContext grounding, McqItem item, String prompt) {
         List<String> chunkIds = grounding.snippets().stream().map(snippet -> snippet.chunkId()).toList();
         boolean damaged = CorpusLoader.looksDamaged(item.questionText()) || item.options().stream().anyMatch(option -> CorpusLoader.looksDamaged(option.text()));
-        return new ItemProvenance(key.runId(), key.configurationId(), settings.generationModel(), settings.filterModel(), key.topicKey(), chunkIds, prompt, settings.difficulty(),
+        return new ItemProvenance(key.runId(), key.configurationId(), settings.generationModel(), settings.filterModel(), key.topicKey(), chunkIds, prompt, difficulty,
                 LengthStats.of(item), damaged, grounding.composition(), Instant.now());
     }
 

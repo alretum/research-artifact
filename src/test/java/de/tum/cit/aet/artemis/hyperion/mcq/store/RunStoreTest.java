@@ -12,12 +12,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore.ItemKey;
+import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore.QueuedItem;
 
 class RunStoreTest {
 
     private static final String RUN = "run-1";
 
     private static final String CONFIG = "gen|filt";
+
+    private static final int DIFFICULTY = 40;
 
     @TempDir
     Path directory;
@@ -177,7 +180,17 @@ class RunStoreTest {
         assertThat(store.runIds()).containsExactly(RUN);
     }
 
-    private static List<ItemKey> keys(int count) {
-        return java.util.stream.IntStream.range(0, count).mapToObj(index -> new ItemKey(RUN, CONFIG, "topic-" + index, 0)).toList();
+    @Test
+    void carriesTheEnqueuedDifficultyThroughToTheClaim() {
+        store.enqueue(List.of(new QueuedItem(new ItemKey(RUN, CONFIG, "topic-a", 0), 15), new QueuedItem(new ItemKey(RUN, CONFIG, "topic-b", 0), 85)));
+
+        var first = store.claimNext(RUN).orElseThrow();
+        var second = store.claimNext(RUN).orElseThrow();
+
+        assertThat(List.of(first.difficulty(), second.difficulty())).containsExactlyInAnyOrder(15, 85);
+    }
+
+    private static List<QueuedItem> keys(int count) {
+        return java.util.stream.IntStream.range(0, count).mapToObj(index -> new QueuedItem(new ItemKey(RUN, CONFIG, "topic-" + index, 0), DIFFICULTY)).toList();
     }
 }

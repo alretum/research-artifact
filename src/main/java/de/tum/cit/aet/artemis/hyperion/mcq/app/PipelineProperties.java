@@ -1,11 +1,14 @@
 package de.tum.cit.aet.artemis.hyperion.mcq.app;
 
+import java.util.List;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -25,13 +28,14 @@ import org.springframework.validation.annotation.Validated;
  * @param topicsFile           optional file of explicit topics, one per line
  * @param competencyManifest   optional competency manifest; takes precedence over topicsFile and folder names
  * @param language             ISO 639-1 language code for generated questions
- * @param difficulty           target difficulty from 0 to 100
+ * @param difficulty           target difficulties from 0 to 100, walked as a ladder so one run produces a
+ *                             range rather than a single level. A single value keeps every item the same.
  */
 @Validated
 @ConfigurationProperties(prefix = "mcq")
 public record PipelineProperties(@NotBlank String corpusPath, @NotBlank String runLogPath, @NotBlank String itemsMarkdownPath, @NotBlank String extractionReportPath,
         @NotBlank String topicReportPath, @NotBlank String retrievalProbePath, String topicsFile, String competencyManifest, @NotBlank String language,
-        @Min(0) @Max(100) int difficulty, @NotNull @Valid Chunking chunking, @NotNull @Valid Retrieval retrieval, @NotNull @Valid Generation generation,
+        @NotEmpty List<@Min(0) @Max(100) Integer> difficulty, @NotNull @Valid Chunking chunking, @NotNull @Valid Retrieval retrieval, @NotNull @Valid Generation generation,
         @NotNull @Valid Filter filter, @NotNull @Valid Batch batch) {
 
     /**

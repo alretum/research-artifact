@@ -58,10 +58,18 @@ public class CompositionReporter {
      * @throws UncheckedIOException if the log cannot be read
      */
     public List<Bucket> tabulate(Path runLog) {
+        List<RunRecord> records = read(runLog);
+        List<Bucket> buckets = new ArrayList<>();
+        for (int i = 0; i < BUCKET_LABELS.length; i++) {
+            buckets.add(bucket(BUCKET_LABELS[i], records, lowerBound(i), BUCKET_UPPER_BOUNDS[i]));
+        }
+        return List.copyOf(buckets);
+    }
+
+    private List<RunRecord> read(Path runLog) {
         if (!Files.isRegularFile(runLog)) {
             throw new UncheckedIOException(new IOException("No run log at " + runLog));
         }
-
         List<RunRecord> records = new ArrayList<>();
         try {
             for (String line : Files.readAllLines(runLog, StandardCharsets.UTF_8)) {
@@ -73,12 +81,25 @@ public class CompositionReporter {
         catch (IOException e) {
             throw new UncheckedIOException("Failed to read run log " + runLog, e);
         }
+        return records;
+    }
 
-        List<Bucket> buckets = new ArrayList<>();
-        for (int i = 0; i < BUCKET_LABELS.length; i++) {
-            buckets.add(bucket(BUCKET_LABELS[i], records, lowerBound(i), BUCKET_UPPER_BOUNDS[i]));
-        }
-        return List.copyOf(buckets);
+    /**
+     * Tabulate accept rate and per-mode severity against the difficulty each item was requested at.
+     * <p>
+     * Requested difficulty is an input, not a measurement: this says what asking for a harder item costs in
+     * accept rate, not whether the model achieved that difficulty. Only recorded student attempts can
+     * answer the latter.
+     *
+     * @param runLog newline-delimited JSON run log
+     * @return one bucket per requested difficulty present in the log, ascending
+     */
+    public List<Bucket> tabulateByDifficulty(Path runLog) {
+        List<RunRecord> records = read(runLog);
+        return records.stream().filter(record -> record.provenance() != null).map(record -> record.provenance().requestedDifficulty()).distinct().sorted()
+                .map(level -> bucketOf(String.valueOf(level), records.stream().filter(record -> record.provenance() != null)
+                        .filter(record -> record.provenance().requestedDifficulty() == level).toList()))
+                .toList();
     }
 
     /**
@@ -88,7 +109,18 @@ public class CompositionReporter {
      * @return a Markdown table, one row per bucket
      */
     public String render(List<Bucket> buckets) {
-        StringBuilder out = new StringBuilder("| solution fraction | items | accept rate |");
+        return render(buckets, "solution fraction");
+    }
+
+    /**
+     * Render the cross-tabulation as a Markdown table under a given first-column heading.
+     *
+     * @param buckets          rows to render
+     * @param firstColumnLabel heading for the bucket column
+     * @return a Markdown table, one row per bucket
+     */
+    public String render(List<Bucket> buckets, String firstColumnLabel) {
+        StringBuilder out = new StringBuilder("| " + firstColumnLabel + " | items | accept rate |");
         for (FailureMode mode : FailureMode.values()) {
             out.append(" mean ").append(mode.name()).append(" |");
         }
@@ -121,6 +153,14 @@ public class CompositionReporter {
             return;
         }
         log.info("Grounding composition vs item quality across {} items:\n{}", total, render(buckets));
+
+        List<Bucket> byDifficulty = tabulateByDifficulty(runLog);
+        if (byDifficulty.size() > 1) {
+            log.info("Requested difficulty vs item quality:\n{}", render(byDifficulty, "requested difficulty"));
+        }
+        else {
+            log.info("Requested difficulty: a single level in this log, so there is nothing to compare. Configure mcq.difficulty as a ladder to vary it.");
+        }
         if (total < 40) {
             log.warn("Only {} items: too few for the gradients to mean anything. Interpret after the bulk run.", total);
         }
@@ -131,7 +171,10 @@ public class CompositionReporter {
     }
 
     private static Bucket bucket(String label, List<RunRecord> records, double lowerExclusive, double upperInclusive) {
-        List<RunRecord> matching = records.stream().filter(record -> inBucket(solutionFraction(record), lowerExclusive, upperInclusive)).toList();
+        return bucketOf(label, records.stream().filter(record -> inBucket(solutionFraction(record), lowerExclusive, upperInclusive)).toList());
+    }
+
+    private static Bucket bucketOf(String label, List<RunRecord> matching) {
         int accepted = (int) matching.stream().filter(record -> record.filterDecision() != null && record.filterDecision().accepted()).count();
 
         Map<FailureMode, Double> severities = new LinkedHashMap<>();

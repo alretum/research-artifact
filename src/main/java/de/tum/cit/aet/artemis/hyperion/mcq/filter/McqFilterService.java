@@ -83,7 +83,7 @@ public class McqFilterService {
 
         String text = outcome.text();
         if (text == null || text.isBlank()) {
-            return new Result(null, call);
+            return new Result(null, call.withFailureCategory("FILTER_EMPTY_RESPONSE"));
         }
 
         FilterOutput output;
@@ -92,21 +92,21 @@ public class McqFilterService {
         }
         catch (Exception e) {
             log.warn("Could not parse filter verdict: {}", e.getMessage());
-            return new Result(null, call);
+            return new Result(null, call.withFailureCategory("FILTER_MALFORMED_JSON"));
         }
         if (output == null || output.modes() == null || output.modes().isEmpty()) {
-            return new Result(null, call);
+            return new Result(null, call.withFailureCategory("FILTER_NO_MODES"));
         }
 
         Map<FailureMode, ModeVerdict> verdicts = toVerdicts(output.modes());
         if (verdicts.size() != FailureMode.values().length) {
             log.warn("Filter judged {} of {} modes; discarding incomplete verdict", verdicts.size(), FailureMode.values().length);
-            return new Result(null, call);
+            return new Result(null, call.withFailureCategory("FILTER_INCOMPLETE_VERDICT"));
         }
+        double worstSeverity = verdicts.values().stream().mapToDouble(ModeVerdict::severity).max().orElse(1);
         double meanSeverity = verdicts.values().stream().mapToDouble(ModeVerdict::severity).average().orElse(1);
-        double aggregate = 1 - meanSeverity;
-        boolean accepted = aggregate >= threshold && verdicts.values().stream().noneMatch(ModeVerdict::triggered);
-        return new Result(new FilterDecision(accepted, aggregate, verdicts, model, output.rationale()), call);
+        double aggregate = 1 - worstSeverity;
+        return new Result(new FilterDecision(aggregate >= threshold, aggregate, meanSeverity, verdicts, model, output.rationale()), call);
     }
 
     private static Map<FailureMode, ModeVerdict> toVerdicts(List<ModeScore> scores) {
