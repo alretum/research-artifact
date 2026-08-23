@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:fragment="page(title, body)">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title th:text="'MCQ pipeline — ' + ${title}">MCQ pipeline</title>
+    <link rel="stylesheet" th:href="@{/app.css}">
+</head>
+<body>
+<header>
+    <h1>MCQ pipeline</h1>
+    <nav>
+        <a th:href="@{/}" th:classappend="${title == 'Dashboard'} ? 'on'">Dashboard</a>
+        <a th:href="@{/items}" th:classappend="${title == 'Items'} ? 'on'">Items</a>
+    </nav>
+</header>
+<main>
+    <div class="notice" th:if="${message}" th:text="${message}"></div>
+    <div class="notice error" th:if="${error}" th:text="${error}"></div>
+    <th:block th:replace="${body}"></th:block>
+</main>
+</body>
+</html>

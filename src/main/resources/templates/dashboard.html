@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Dashboard', ~{::body-content})}">
+<body>
+<th:block th:fragment="body-content">
+
+    <h2>Corpus</h2>
+    <div class="card grid">
+        <div><div class="stat" th:text="${documentCount}">0</div><span>documents</span></div>
+        <div><div class="stat" th:text="${chunkCount}">0</div><span>chunks indexed</span></div>
+        <div><div class="stat" th:text="${#lists.size(topics)}">0</div><span>topics</span></div>
+        <div><div class="stat" th:text="${attemptCount}">0</div><span>answers recorded</span></div>
+    </div>
+    <p class="muted">Configuration <span class="pill" th:text="${configuration}"></span>
+        accept threshold <span class="pill" th:text="${threshold}"></span></p>
+
+    <h2>Generate</h2>
+    <div class="card">
+        <form method="post" th:action="@{/runs}" class="inline">
+            <div>
+                <label for="topics">Topics (none selected = all grounded topics)</label>
+                <select id="topics" name="topics" multiple size="8" style="min-width:22rem">
+                    <option th:each="t : ${topics}" th:if="${t.grounded()}" th:value="${t.key()}"
+                            th:text="${t.key()} + ' (' + ${t.chunkCount()} + ' chunks)'"></option>
+                </select>
+            </div>
+            <div>
+                <label for="itemsPerTopic">Items per topic</label>
+                <input id="itemsPerTopic" name="itemsPerTopic" type="number" value="1" min="1" max="50" style="width:6rem">
+            </div>
+            <div>
+                <label for="concurrency">Workers</label>
+                <input id="concurrency" name="concurrency" type="number" value="1" min="1" max="4" style="width:5rem">
+            </div>
+            <button class="primary" type="submit" th:disabled="${activeRunId != null}">Start run</button>
+        </form>
+        <p class="muted" th:if="${activeRunId != null}">A run is already executing. Stop it before starting another.</p>
+        <p class="muted" th:if="${#lists.isEmpty(topics)}">No topics available.</p>
+    </div>
+
+    <h2>Runs</h2>
+    <div class="card" th:if="${#lists.isEmpty(runs)}"><span class="muted">No runs yet.</span></div>
+    <div class="card" th:each="r : ${runs}" th:attr="data-run=${r.runId()}">
+        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:1rem">
+            <div>
+                <strong th:text="${r.runId()}"></strong>
+                <span class="pill ok" th:if="${r.running()} and !${r.stopping()}">running</span>
+                <span class="pill warn" th:if="${r.stopping()}">stopping</span>
+                <span class="pill" th:if="${!r.running()} and ${r.complete()}">complete</span>
+                <span class="pill warn" th:if="${!r.running()} and !${r.complete()}">outstanding</span>
+                <span class="muted" th:if="${r.description() != null}" th:text="' — ' + ${r.description()}"></span>
+            </div>
+            <div>
+                <form method="post" th:action="@{'/runs/' + ${r.runId()} + '/stop'}" style="display:inline"
+                      th:if="${r.running()}"><button type="submit">Stop</button></form>
+                <form method="post" th:action="@{'/runs/' + ${r.runId()} + '/resume'}" style="display:inline"
+                      th:if="${!r.running()} and !${r.complete()}"><button type="submit" th:disabled="${activeRunId != null}">Resume</button></form>
+                <a th:href="@{/items(run=${r.runId()})}">items</a>
+            </div>
+        </div>
+        <div class="muted" style="font-size:.85rem" th:text="${r.done()} + ' / ' + ${r.total()} + ' done — ' + ${r.stateCounts()}"></div>
+        <div class="bar"><div th:style="'width:' + ${r.percent()} + '%'"></div></div>
+    </div>
+
+    <script th:inline="javascript">
+        const activeRun = /*[[${activeRunId}]]*/ null;
+        if (activeRun) {
+            setInterval(async () => {
+                const response = await fetch('/api/progress/' + activeRun);
+                if (!response.ok) return;
+                const progress = await response.json();
+                const card = document.querySelector('[data-run="' + activeRun + '"]');
+                if (!card) return;
+                card.querySelector('.bar > div').style.width = progress.percent + '%';
+                card.querySelector('.muted').textContent =
+                    progress.done + ' / ' + progress.total + ' done — ' + JSON.stringify(progress.stateCounts);
+                if (!progress.running) location.reload();
+            }, 3000);
+        }
+    </script>
+</th:block>
+</body>
+</html>

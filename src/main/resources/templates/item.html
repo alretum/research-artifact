@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Item', ~{::body-content})}">
+<body>
+<th:block th:fragment="body-content">
+    <p class="muted"><a th:href="@{/items}">&larr; all items</a></p>
+
+    <h2 th:text="${view.title()}">Item</h2>
+    <div class="card">
+        <p class="muted" style="margin-top:0">
+            <span class="pill" th:text="${view.topicKey()}"></span>
+            <span class="pill" th:text="'run ' + ${view.runId()}"></span>
+            <span th:if="${view.judged()}" th:classappend="${view.decision().accepted()} ? 'pill ok' : 'pill bad'"
+                  th:text="${view.decision().accepted()} ? 'accepted' : 'rejected'"></span>
+            <span th:if="${view.judged()}" class="pill"
+                  th:text="'score ' + ${#numbers.formatDecimal(view.decision().aggregateScore(),1,2)}"></span>
+        </p>
+        <p th:text="${view.questionText()}"></p>
+
+        <form method="post" th:action="@{'/items/' + ${view.id()} + '/answer'}">
+            <button th:each="o : ${view.options()}" type="submit" name="option" th:value="${o.index()}" class="opt"
+                    th:classappend="${answered != null} ? (${o.correct()} ? 'correct' : (${o.index() == answered} ? 'chosen-wrong' : '')) : ''"
+                    th:text="${o.text()}"></button>
+        </form>
+
+        <p th:if="${answered != null}">
+            <strong th:if="${view.options()[answered].correct()}" class="ok">Correct.</strong>
+            <strong th:unless="${view.options()[answered].correct()}" class="bad">Not correct.</strong>
+            <span class="muted" th:text="${view.explanation()}"></span>
+        </p>
+        <p th:if="${answered == null}" class="muted" style="font-size:.85rem">Choose an option to see the explanation.</p>
+    </div>
+
+    <h2 th:if="${view.judged()}">Filter verdict</h2>
+    <div class="card" th:if="${view.judged()}">
+        <table>
+            <tr><th>Failure mode</th><th>Severity</th><th>Model flagged</th><th>Justification</th></tr>
+            <tr th:each="v : ${view.verdicts()}">
+                <td th:text="${v.mode()}"></td>
+                <td><span class="sev" th:classappend="${v.severity() > 0.5} ? 'bad' : (${v.severity() > 0} ? 'warn' : 'ok')"
+                          th:text="${#numbers.formatDecimal(v.severity(),1,2)}"></span></td>
+                <td class="muted" th:text="${v.triggered()} ? 'yes' : 'no'"></td>
+                <td class="muted" th:text="${v.justification()}"></td>
+            </tr>
+        </table>
+        <p class="muted" style="font-size:.85rem">
+            The decision uses the worst severity only. The flag column is the model's own verdict, recorded but
+            not part of the decision.
+        </p>
+    </div>
+
+    <h2>Grounding</h2>
+    <div class="card">
+        <p style="margin-top:0" th:text="${view.compositionSummary()}"></p>
+        <ul class="muted" style="font-size:.85rem; margin:0; padding-left:1.2rem">
+            <li th:each="c : ${view.provenance().groundingChunkIds()}" th:text="${c}"></li>
+        </ul>
+    </div>
+
+    <h2>Calls</h2>
+    <div class="card">
+        <table>
+            <tr><th>Stage</th><th>Model</th><th>Tokens in/out</th><th>Wall clock</th><th>Outcome</th></tr>
+            <tr th:each="c : ${view.calls()}">
+                <td th:text="${c.stage()}"></td>
+                <td class="muted" th:text="${c.model()}"></td>
+                <td class="muted" th:text="${c.promptTokens()} + ' / ' + ${c.completionTokens()}"></td>
+                <td class="muted" th:text="${c.wallClockMs()} + ' ms'"></td>
+                <td th:classappend="${c.failureCategory() != null} ? 'bad' : 'ok'"
+                    th:text="${c.failureCategory()} ?: ${c.outcome()}"></td>
+            </tr>
+        </table>
+    </div>
+
+    <h2 th:if="${!#lists.isEmpty(attempts)}">Answer history</h2>
+    <div class="card" th:if="${!#lists.isEmpty(attempts)}">
+        <table>
+            <tr><th>When</th><th>Chose</th><th>Result</th></tr>
+            <tr th:each="a : ${attempts}">
+                <td class="muted" th:text="${a.answeredAt()}"></td>
+                <td th:text="${view.options()[a.chosenOption()].text()}"></td>
+                <td th:classappend="${a.correct()} ? 'ok' : 'bad'" th:text="${a.correct()} ? 'correct' : 'wrong'"></td>
+            </tr>
+        </table>
+    </div>
+</th:block>
+</body>
+</html>
