@@ -15,7 +15,7 @@ public class McqPipelineApplication {
     /**
      * Arguments that mean "do this one thing and exit" rather than "serve the interface".
      */
-    private static final Set<String> COMMAND_ARGUMENTS = Set.of("count", "resume", "report", "sweep", "retrieval-only", "export");
+    private static final Set<String> COMMAND_ARGUMENTS = Set.of("count", "resume", "report", "sweep", "cost", "retrieval-only", "export");
 
     public static void main(String[] args) {
         boolean command = List.of(args).stream().anyMatch(argument -> COMMAND_ARGUMENTS.stream().anyMatch(name -> argument.startsWith("--" + name)));

@@ -16,6 +16,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
 import de.tum.cit.aet.artemis.hyperion.mcq.batch.BatchRunner;
+import de.tum.cit.aet.artemis.hyperion.mcq.cost.CostReporter;
 import de.tum.cit.aet.artemis.hyperion.mcq.batch.BatchRunner.TopicQuery;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.CallRecord;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.Chunk;
@@ -81,8 +82,10 @@ public class PipelineRunner implements ApplicationRunner {
 
     private final FailureReporter failures;
 
+    private final CostReporter cost;
+
     public PipelineRunner(PipelineProperties properties, EmbeddingModel embeddingModel, ChatClient.Builder chatClientBuilder, GroundingAssemblyService groundingAssembly,
-            McqGenerationService generation, McqFilterService filter, RunLogWriter runLog, ExtractionReportWriter reportWriter, CompositionReporter compositionReporter, RunExporter exporter, ThresholdSweep sweep, FailureReporter failures) {
+            McqGenerationService generation, McqFilterService filter, RunLogWriter runLog, ExtractionReportWriter reportWriter, CompositionReporter compositionReporter, RunExporter exporter, ThresholdSweep sweep, FailureReporter failures, CostReporter cost) {
         this.properties = properties;
         this.embeddingModel = embeddingModel;
         this.chatClientBuilder = chatClientBuilder;
@@ -95,6 +98,7 @@ public class PipelineRunner implements ApplicationRunner {
         this.exporter = exporter;
         this.sweep = sweep;
         this.failures = failures;
+        this.cost = cost;
     }
 
     private ApplicationArguments arguments;
@@ -103,7 +107,7 @@ public class PipelineRunner implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         this.arguments = args;
         if (!args.containsOption("count") && !args.containsOption("resume") && !args.containsOption("report") && !args.containsOption("sweep")
-                && !args.containsOption("retrieval-only")) {
+                && !args.containsOption("cost") && !args.containsOption("retrieval-only")) {
             log.info("No command argument given; the web interface is available at http://localhost:8080");
             return;
         }
@@ -113,6 +117,10 @@ public class PipelineRunner implements ApplicationRunner {
         }
         if (args.containsOption("sweep")) {
             sweep.report(Path.of(properties.runLogPath()));
+            return;
+        }
+        if (args.containsOption("cost")) {
+            cost.report(Path.of(properties.runLogPath()), Path.of(properties.pricingPath()));
             return;
         }
 

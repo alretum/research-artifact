@@ -11,6 +11,10 @@ models:
 
   # Locally served models have no per-token price. Their cost is GPU time, derived from
   # gpu.eur-per-hour below and the measured occupancy of each call.
+  # Served on chair GPUs through Logos, so billed by time rather than per token. The id must match
+  # what the provider reports and what CallRecord stores, exactly.
+  "openai/gpt-oss-120b":
+    billing: gpu-time
   "gpt-oss:20b":
     billing: gpu-time
   "llama3.1:latest":
