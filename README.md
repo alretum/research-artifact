@@ -337,6 +337,10 @@ With no command argument the application starts the web interface on port 8080 a
 | `--retrieval-only` | Index and probe retrieval; no LLM generation calls. |
 | `--report` | Grounding composition against item quality, from stored records. No model calls. |
 | `--sweep` | Accept rate and per-mode trigger rates across a range of thresholds. No model calls. |
+| `--cost` | Cost per configuration from recorded calls, using `config/pricing.yml`. No model calls. |
+| `--plan=FILE` | Validate a run plan and print what it would run. Generates nothing. |
+| `--run-plan=FILE` | Run every configuration in a plan, one after another. |
+| `--export-benchmark=DIR` | Write the items as input for the external quality benchmark. No model calls. |
 
 ```bash
 java -jar build/libs/mcq-pipeline-0.1.0-SNAPSHOT.jar --count=10
@@ -344,6 +348,34 @@ java -jar build/libs/mcq-pipeline-0.1.0-SNAPSHOT.jar --resume=a1b2c3d4
 ```
 
 Reports read persisted decisions, so re-reporting never means re-generating.
+
+### Measuring quality
+
+Quality is not measured here. This pipeline's filter is part of what is being tested — and it currently
+runs on the same model as the generator, so its accept rate partly measures the model agreeing with
+itself. Independent measurement comes from
+[`ls1intum/paper-al-quiz-generation-benchmark`](https://github.com/ls1intum/paper-al-quiz-generation-benchmark),
+which brings its own evaluator models.
+
+```bash
+java -jar build/libs/mcq-pipeline-0.1.0-SNAPSHOT.jar \
+  --export-benchmark=data/benchmark \
+  --export-granularity=configuration-topic \
+  --export-condition=split
+```
+
+That writes `quizzes/`, `instructions/` and a `benchmark.yaml` pointing at both, then prints the command to
+run from the benchmark checkout. Fill in an evaluator model first — the config leaves it blank on purpose,
+because a model that generated or filtered these items cannot independently judge them.
+
+| flag | values | what it changes |
+|---|---|---|
+| `--export-granularity` | `topic`, `configuration-topic` (default), `configuration`, `run` | What becomes one quiz file. The benchmark's `coverage` and `homogeneous_options` metrics compare a whole quiz against its source material, so the per-topic groupings keep one quiz to one lecture; the coarser ones are for comparing configurations, and the generated config disables those two metrics automatically. |
+| `--export-condition` | `all` (default), `accepted`, `rejected`, `split` | Which items each file holds. Rejected items are kept deliberately (§6), so the unfiltered condition costs nothing. `split` writes accepted and rejected to separate files, which the two quiz-level metrics need in order to describe one condition rather than a mixture. |
+
+Every question also carries our own variables in its `metadata` — requested difficulty, solution fraction,
+configuration id, accept decision, per-mode filter severities. Nothing reads them back; the pipeline is
+one-directional by design, and they are there as a provenance trail.
 
 ### Web interface
 

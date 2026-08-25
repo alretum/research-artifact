@@ -146,7 +146,7 @@ public class PipelineRunner implements ApplicationRunner {
             Granularity granularity = Granularity.parse(stringArg(args, "export-granularity", "configuration-topic"));
             Condition condition = Condition.parse(stringArg(args, "export-condition", "all"));
             try (RunStore store = new RunStore(Path.of(properties.batch().databasePath()))) {
-                benchmark.export(store, Path.of(args.getOptionValues("export-benchmark").getFirst()), granularity, condition);
+                benchmark.export(store, Path.of(args.getOptionValues("export-benchmark").getFirst()), granularity, condition, properties.language());
             }
             return;
         }

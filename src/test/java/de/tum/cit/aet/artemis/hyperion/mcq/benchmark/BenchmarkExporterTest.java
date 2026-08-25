@@ -79,7 +79,7 @@ class BenchmarkExporterTest {
         item("r1", "cfg-a", "Simplex", 0, true, 20, "02 Simplex");
         item("r2", "cfg-b", "Duality", 0, true, 20, "05 Duality");
 
-        var files = exporter.export(store, directory.resolve("out"), Granularity.CONFIGURATION_TOPIC, Condition.ALL);
+        var files = exporter.export(store, directory.resolve("out"), Granularity.CONFIGURATION_TOPIC, Condition.ALL, "en");
 
         assertThat(files).hasSize(3);
     }
@@ -89,7 +89,7 @@ class BenchmarkExporterTest {
         item("r1", "cfg-a", "Duality", 0, true, 20, "05 Duality");
         item("r2", "cfg-b", "Duality", 0, true, 20, "05 Duality");
 
-        var files = exporter.export(store, directory.resolve("out"), Granularity.TOPIC, Condition.ALL);
+        var files = exporter.export(store, directory.resolve("out"), Granularity.TOPIC, Condition.ALL, "en");
 
         assertThat(files).hasSize(1);
         assertThat(read(files.getFirst())).extracting("metadata").extracting("item_count").isEqualTo(2);
@@ -99,7 +99,7 @@ class BenchmarkExporterTest {
     void emitsTheCorrectAnswerAsOptionTextThatAppearsAmongTheOptions() {
         item("r1", "cfg-a", "Duality", 0, true, 20, "05 Duality");
 
-        var quiz = read(exporter.export(store, directory.resolve("out"), Granularity.TOPIC, Condition.ALL).getFirst());
+        var quiz = read(exporter.export(store, directory.resolve("out"), Granularity.TOPIC, Condition.ALL, "en").getFirst());
         Map<String, Object> question = ((List<Map<String, Object>>) quiz.get("questions")).getFirst();
 
         assertThat(question.get("question_type")).isEqualTo("single_choice");
@@ -111,7 +111,7 @@ class BenchmarkExporterTest {
     void carriesOurVariablesInQuestionMetadataSoResultsCanBeCrossTabulated() {
         item("r1", "cfg-a", "Duality", 0, false, 80, "05 Duality");
 
-        var quiz = read(exporter.export(store, directory.resolve("out"), Granularity.TOPIC, Condition.ALL).getFirst());
+        var quiz = read(exporter.export(store, directory.resolve("out"), Granularity.TOPIC, Condition.ALL, "en").getFirst());
         Map<String, Object> metadata = (Map<String, Object>) ((List<Map<String, Object>>) quiz.get("questions")).getFirst().get("metadata");
 
         assertThat(metadata).containsEntry("accepted", false).containsEntry("requested_difficulty", 80).containsEntry("difficulty_level", "hard")
@@ -124,7 +124,7 @@ class BenchmarkExporterTest {
         item("r1", "cfg-a", "B", 0, true, 50, "L");
         item("r1", "cfg-a", "C", 0, true, 90, "L");
 
-        var bands = exporter.export(store, directory.resolve("out"), Granularity.CONFIGURATION, Condition.ALL).stream()
+        var bands = exporter.export(store, directory.resolve("out"), Granularity.CONFIGURATION, Condition.ALL, "en").stream()
                 .flatMap(file -> ((List<Map<String, Object>>) read(file).get("questions")).stream())
                 .map(question -> ((Map<String, Object>) question.get("metadata")).get("difficulty_level")).toList();
 
@@ -135,7 +135,7 @@ class BenchmarkExporterTest {
     void namesTheLectureAsSourceMaterialWhenTheQuizDrawsOnOnlyOne() {
         item("r1", "cfg-a", "Duality", 0, true, 20, "05 Duality");
 
-        var quiz = read(exporter.export(store, directory.resolve("out"), Granularity.TOPIC, Condition.ALL).getFirst());
+        var quiz = read(exporter.export(store, directory.resolve("out"), Granularity.TOPIC, Condition.ALL, "en").getFirst());
 
         assertThat(quiz.get("source_material")).isEqualTo("05 Duality");
     }
@@ -145,7 +145,7 @@ class BenchmarkExporterTest {
         item("r1", "cfg-a", "A", 0, true, 20, "05 Duality");
         item("r1", "cfg-a", "B", 0, true, 20, "02 Simplex");
 
-        var quiz = read(exporter.export(store, directory.resolve("out"), Granularity.CONFIGURATION, Condition.ALL).getFirst());
+        var quiz = read(exporter.export(store, directory.resolve("out"), Granularity.CONFIGURATION, Condition.ALL, "en").getFirst());
 
         assertThat(quiz.get("source_material")).isEqualTo(".");
     }
@@ -155,7 +155,7 @@ class BenchmarkExporterTest {
         item("r1", "cfg-a", "Duality", 0, true, 20, "05 Duality");
         item("r1", "cfg-a", "Duality", 1, false, 20, "05 Duality");
 
-        var files = exporter.export(store, directory.resolve("out"), Granularity.CONFIGURATION_TOPIC, Condition.SPLIT);
+        var files = exporter.export(store, directory.resolve("out"), Granularity.CONFIGURATION_TOPIC, Condition.SPLIT, "en");
 
         assertThat(files).hasSize(2);
         assertThat(files).extracting(file -> file.getFileName().toString()).anyMatch(name -> name.contains("accepted")).anyMatch(name -> name.contains("rejected"));
@@ -166,7 +166,7 @@ class BenchmarkExporterTest {
         item("r1", "cfg-a", "Duality", 0, true, 20, "05 Duality");
         item("r1", "cfg-a", "Duality", 1, false, 20, "05 Duality");
 
-        var quiz = read(exporter.export(store, directory.resolve("out"), Granularity.TOPIC, Condition.ACCEPTED).getFirst());
+        var quiz = read(exporter.export(store, directory.resolve("out"), Granularity.TOPIC, Condition.ACCEPTED, "en").getFirst());
 
         assertThat((List<?>) quiz.get("questions")).hasSize(1);
     }
@@ -175,7 +175,7 @@ class BenchmarkExporterTest {
     void skipsAGroupWithNoItemsForTheRequestedConditionRatherThanWritingAnEmptyQuiz() {
         item("r1", "cfg-a", "Duality", 0, true, 20, "05 Duality");
 
-        var files = exporter.export(store, directory.resolve("out"), Granularity.TOPIC, Condition.REJECTED);
+        var files = exporter.export(store, directory.resolve("out"), Granularity.TOPIC, Condition.REJECTED, "en");
 
         assertThat(files).isEmpty();
     }

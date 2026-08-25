@@ -127,13 +127,18 @@ public class BenchmarkExporter {
     /**
      * Export every completed item in the store.
      *
+     * Lays out three things the benchmark's configuration expects separately: {@code quizzes/} for the
+     * quiz files, {@code instructions/} for the per-quiz instruction files its loader resolves by name,
+     * and a {@code benchmark.yaml} already pointing at both.
+     *
      * @param store       the run store
-     * @param directory   directory to write quiz files into, created if absent
+     * @param directory   directory to write into, created if absent
      * @param granularity what becomes one quiz file
      * @param condition   which items each file holds
-     * @return the files written
+     * @param language    ISO 639-1 code the items were generated in, for the instruction files
+     * @return the quiz files written
      */
-    public List<Path> export(RunStore store, Path directory, Granularity granularity, Condition condition) {
+    public List<Path> export(RunStore store, Path directory, Granularity granularity, Condition condition, String language) {
         List<Loaded> loaded = new ArrayList<>();
         for (String runId : store.runIds()) {
             for (CompletedItem completed : store.completedItems(runId)) {
@@ -148,11 +153,14 @@ public class BenchmarkExporter {
             return List.of();
         }
 
+        Path quizzes = directory.resolve("quizzes");
+        Path instructions = directory.resolve("instructions");
         try {
-            Files.createDirectories(directory);
+            Files.createDirectories(quizzes);
+            Files.createDirectories(instructions);
         }
         catch (IOException e) {
-            throw new UncheckedIOException("Failed to create export directory " + directory, e);
+            throw new UncheckedIOException("Failed to create export directories under " + directory, e);
         }
 
         Map<String, List<Loaded>> groups = new LinkedHashMap<>();
@@ -161,19 +169,21 @@ public class BenchmarkExporter {
         List<Path> written = new ArrayList<>();
         groups.forEach((key, items) -> {
             switch (condition) {
-                case ALL -> written.add(write(directory, key, items, granularity, "all"));
-                case ACCEPTED -> written.add(write(directory, key, filter(items, true), granularity, "accepted"));
-                case REJECTED -> written.add(write(directory, key, filter(items, false), granularity, "rejected"));
+                case ALL -> written.add(write(quizzes, instructions, key, items, granularity, "all", language));
+                case ACCEPTED -> written.add(write(quizzes, instructions, key, filter(items, true), granularity, "accepted", language));
+                case REJECTED -> written.add(write(quizzes, instructions, key, filter(items, false), granularity, "rejected", language));
                 case SPLIT -> {
-                    written.add(write(directory, key, filter(items, true), granularity, "accepted"));
-                    written.add(write(directory, key, filter(items, false), granularity, "rejected"));
+                    written.add(write(quizzes, instructions, key, filter(items, true), granularity, "accepted", language));
+                    written.add(write(quizzes, instructions, key, filter(items, false), granularity, "rejected", language));
                 }
             }
         });
         written.removeIf(java.util.Objects::isNull);
 
-        log.info("Exported {} item(s) to {} quiz file(s) in {} (granularity {}, condition {})", loaded.size(), written.size(), directory, granularity.name().toLowerCase(Locale.ROOT),
-                condition.name().toLowerCase(Locale.ROOT));
+        Path config = writeConfig(directory, granularity);
+        log.info("Exported {} item(s) to {} quiz file(s) under {} (granularity {}, condition {})", loaded.size(), written.size(), directory,
+                granularity.name().toLowerCase(Locale.ROOT), condition.name().toLowerCase(Locale.ROOT));
+        log.info("Run the benchmark with: python main.py --config {}", config.toAbsolutePath());
         if (granularity == Granularity.CONFIGURATION || granularity == Granularity.RUN) {
             log.warn("At this granularity a quiz spans several topics, so disable the coverage and homogeneous_options metrics: "
                     + "they compare a whole quiz against its source material and would score a multi-topic quiz unfairly.");
@@ -215,7 +225,7 @@ public class BenchmarkExporter {
         };
     }
 
-    private Path write(Path directory, String key, List<Loaded> items, Granularity granularity, String conditionLabel) {
+    private Path write(Path quizzes, Path instructionsDirectory, String key, List<Loaded> items, Granularity granularity, String conditionLabel, String language) {
         if (items.isEmpty()) {
             return null;
         }
@@ -233,8 +243,11 @@ public class BenchmarkExporter {
         metadata.put("topics", distinct(items, Loaded::topic));
         metadata.put("item_count", items.size());
 
-        BenchmarkQuiz quiz = new BenchmarkQuiz(quizId, key + " (" + conditionLabel + ")", sourceMaterial(items), null, metadata, questions);
-        Path file = directory.resolve(quizId + ".json");
+        String instructionsFile = quizId + ".json";
+        writeInstructions(instructionsDirectory.resolve(instructionsFile), items, questions, language);
+
+        BenchmarkQuiz quiz = new BenchmarkQuiz(quizId, key + " (" + conditionLabel + ")", sourceMaterial(items), instructionsFile, metadata, questions);
+        Path file = quizzes.resolve(quizId + ".json");
         try {
             Files.writeString(file, mapper.writeValueAsString(quiz), StandardCharsets.UTF_8);
         }
@@ -279,6 +292,122 @@ public class BenchmarkExporter {
 
         return new BenchmarkQuestion(questionId, single ? BenchmarkQuiz.SINGLE_CHOICE : BenchmarkQuiz.MULTIPLE_CHOICE, item.questionText().strip(), options,
                 single ? correct.getFirst() : correct, sourceReference(loaded), metadata);
+    }
+
+    /**
+     * Write the instruction file for one quiz.
+     * <p>
+     * Describes what the generator was asked for, which is what the benchmark's objective-alignment metric
+     * judges the questions against. {@code difficulty} is emitted only when every question in the quiz
+     * shares one band, because the benchmark accepts exactly one of easy, medium or hard -- a quiz drawn
+     * from several rungs of the difficulty ladder honestly has no single value.
+     *
+     * @param file      instruction file to write
+     * @param items     the items in this quiz
+     * @param questions the exported questions, for their types and count
+     * @param language  ISO 639-1 code the items were generated in
+     */
+    private void writeInstructions(Path file, List<Loaded> items, List<BenchmarkQuestion> questions, String language) {
+        Map<String, Object> instructions = new LinkedHashMap<>();
+        instructions.put("language", languageName(language));
+        instructions.put("num_questions", questions.size());
+        instructions.put("question_types", questions.stream().map(BenchmarkQuestion::questionType).distinct().sorted().toList());
+
+        Set<String> bands = new LinkedHashSet<>();
+        items.stream().map(Loaded::provenance).filter(java.util.Objects::nonNull).map(provenance -> difficultyBand(provenance.requestedDifficulty())).forEach(bands::add);
+        if (bands.size() == 1) {
+            instructions.put("difficulty", bands.iterator().next());
+        }
+        instructions.put("custom_prompt", "Each question must be answerable from the supplied lecture material, must require at least one step of reasoning rather than "
+                + "verbatim recall, and must stand alone without referring to the lecture, a slide or a numbered exercise. Exactly one of the options is correct.");
+
+        try {
+            Files.writeString(file, mapper.writeValueAsString(instructions), StandardCharsets.UTF_8);
+        }
+        catch (IOException e) {
+            throw new UncheckedIOException("Failed to write instructions " + file, e);
+        }
+    }
+
+    /**
+     * @param code ISO 639-1 code
+     * @return the English name the benchmark's own examples use, or the code when unmapped
+     */
+    private static String languageName(String code) {
+        if (code == null) {
+            return null;
+        }
+        return switch (code.toLowerCase(Locale.ROOT)) {
+            case "en" -> "English";
+            case "de" -> "German";
+            default -> code;
+        };
+    }
+
+    /**
+     * Write a benchmark configuration pointing at this export.
+     *
+     * @param directory   the export directory
+     * @param granularity the granularity used, which decides whether quiz-level metrics are enabled
+     * @return the configuration file
+     */
+    private Path writeConfig(Path directory, Granularity granularity) {
+        boolean multiTopic = granularity == Granularity.CONFIGURATION || granularity == Granularity.RUN;
+        String quizLevel = multiTopic ? "false" : "true";
+        String note = multiTopic ? "  # disabled: a quiz here spans several topics, so this would score it unfairly" : "";
+        String yaml = """
+                # Written by --export-benchmark. Run from the benchmark checkout:
+                #   python main.py --config %s
+                #
+                # Evaluator models must be granted to the key in CUSTOM_LLM_API_KEY. Use a model that did
+                # NOT generate or filter these items: an evaluator that also produced them measures
+                # self-agreement rather than quality.
+                benchmark:
+                  name: "mcq-pipeline-export"
+                  version: "1.0.0"
+                  runs: 1
+
+                evaluators:
+                  independent_judge:
+                    provider: "openai_compatible"
+                    model: "<a model other than the generator>"
+                    base_url: "https://logos.aet.cit.tum.de/v1"
+                    temperature: 0.0
+                    max_tokens: 2000
+
+                metrics:
+                  - {name: "answer_key_correctness", version: "1.0", evaluators: ["independent_judge"], enabled: true}
+                  - {name: "clarity", version: "1.0", evaluators: ["independent_judge"], enabled: true}
+                  - {name: "cognitive_level", version: "1.0", evaluators: ["independent_judge"], enabled: true}
+                  - {name: "distractor", version: "1.0", evaluators: ["independent_judge"], enabled: true}
+                  - {name: "absence_of_cueing", version: "1.0", evaluators: ["independent_judge"], enabled: true}
+                  - {name: "difficulty", version: "1.0", evaluators: ["independent_judge"], enabled: true}
+                  - {name: "objective_alignment", version: "1.0", evaluators: ["independent_judge"], enabled: true}
+                  - {name: "grammatic", version: "2.0", evaluators: ["independent_judge"], enabled: true}
+                  - {name: "accuracy", version: "1.0", evaluators: ["independent_judge"], enabled: true}
+                  # quiz-level metrics
+                  - {name: "coverage", version: "1.1", evaluators: ["independent_judge"], enabled: %s}%s
+                  - {name: "homogeneous_options", version: "1.0", evaluators: ["independent_judge"], enabled: %s}%s
+
+                inputs:
+                  quiz_directory: "%s"
+                  source_directory: "%s"
+                  instructions_directory: "%s"
+
+                outputs:
+                  results_directory: "%s"
+                  aggregate: true
+                """.formatted(directory.resolve("benchmark.yaml").toAbsolutePath(), quizLevel, note, quizLevel, note,
+                directory.resolve("quizzes").toAbsolutePath(), Path.of("corpus").toAbsolutePath(), directory.resolve("instructions").toAbsolutePath(),
+                directory.resolve("results").toAbsolutePath());
+        Path file = directory.resolve("benchmark.yaml");
+        try {
+            Files.writeString(file, yaml, StandardCharsets.UTF_8);
+        }
+        catch (IOException e) {
+            throw new UncheckedIOException("Failed to write benchmark config " + file, e);
+        }
+        return file;
     }
 
     /**
