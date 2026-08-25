@@ -26,6 +26,10 @@ backends:
   #   base-url: http://localhost:11434/v1
   #   api-key-env: OLLAMA_API_KEY      # Ollama ignores the value but the client requires one
   #
+  # Azure needs more than an entry here: it authenticates with an api-key header rather than a bearer
+  # token, and uses a different URL shape and an API version. The client factory would need to use the
+  # SDK's AzureApiKeyCredential instead of BearerTokenCredential. Untested; expect it to fail as written.
+  #
   # azure:
   #   base-url: https://<resource>.openai.azure.com/openai/v1
   #   api-key-env: AZURE_OPENAI_API_KEY

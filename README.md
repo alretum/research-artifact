@@ -6,6 +6,23 @@ independent quality evaluation.
 It has no runtime dependency on Artemis, Pyris or Logos code. It needs a directory of lecture PDFs, one
 chat model, and one embedding model. After the first setup, everything runs in the browser.
 
+**A second model can be added, and a second backend with it — but only one path is proven.** Generation and
+filtering take the model as a call parameter, so adding another model on a backend already configured is a
+single entry in `config/models.yml` and no code. A model on a *new* backend gets its own client, built from
+that backend's base URL and the key named in its `api-key-env`.
+
+How far that has actually been exercised, stated precisely:
+
+- **Another model on the existing Logos backend** — works, no code needed. Not yet run, because the models
+  exist on Logos but have to be granted to your key.
+- **A second OpenAI-compatible backend** — the client-building path is exercised with real calls, but only
+  against Logos declared twice. Never against a genuinely different provider, so treat OpenAI, vLLM or
+  another institution's endpoint as untested rather than broken.
+- **Azure OpenAI specifically** — expected *not* to work as written. Azure authenticates with an `api-key`
+  header rather than `Authorization: Bearer`, and uses a different URL shape and an API version; the SDK
+  ships `AzureApiKeyCredential`, `AzureUrlPathMode` and `AzureOpenAIServiceVersion` for exactly this, none
+  of which the client factory uses. It needs a small addition, not a rewrite.
+
 **Quality is not measured here.** This pipeline's own filter is part of what is being tested, and it
 currently runs on the same model as the generator, so its accept rate partly measures the model agreeing
 with itself. Independent measurement comes from
@@ -230,7 +247,9 @@ serves any number of models: the model name travels with each request.
 | cloud model | a commercial provider | not configured |
 
 Adding a **second model on an existing backend** is one catalogue entry and no code. Adding a model on a
-**new backend** additionally needs its key in the environment; the tool builds the client itself.
+**new backend** additionally needs its key in the environment; the tool builds that backend's client itself,
+using a bearer token. See the note at the top of this file for how far each of those has been tested —
+Azure in particular needs a different credential type that is not implemented.
 
 | variable | default | notes |
 |---|---|---|
