@@ -222,7 +222,7 @@ public class PipelineRunner implements ApplicationRunner {
     private BatchRunner.Settings planSettings(String runId, RunPlan.RunConfiguration configuration, String generator, String filterModel) {
         return new BatchRunner.Settings(runId, configuration.id(), properties.retrieval().topK(), properties.retrieval().maxGroundingTokens(), properties.difficulty(),
                 properties.language(), generator, properties.generation().temperature(), properties.generation().maxAttempts(), filterModel, properties.filter().temperature(),
-                properties.filter().maxAttempts(), properties.filter().acceptThreshold(), properties.batch().maxOutputAttempts(),
+                properties.filter().maxAttempts(), properties.filter().acceptThreshold(), properties.filter().gatingModes(), properties.batch().maxOutputAttempts(),
                 intArgOrDefault("concurrency", properties.batch().concurrency()));
     }
 
@@ -282,7 +282,7 @@ public class PipelineRunner implements ApplicationRunner {
     private BatchRunner.Settings batchSettings(String runId) {
         return new BatchRunner.Settings(runId, properties.configurationId(), properties.retrieval().topK(), properties.retrieval().maxGroundingTokens(), properties.difficulty(),
                 properties.language(), properties.generation().model(), properties.generation().temperature(), properties.generation().maxAttempts(), properties.filter().model(),
-                properties.filter().temperature(), properties.filter().maxAttempts(), properties.filter().acceptThreshold(), properties.batch().maxOutputAttempts(),
+                properties.filter().temperature(), properties.filter().maxAttempts(), properties.filter().acceptThreshold(), properties.filter().gatingModes(), properties.batch().maxOutputAttempts(),
                 intArgOrDefault("concurrency", properties.batch().concurrency()));
     }
 

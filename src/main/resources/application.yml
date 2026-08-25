@@ -67,6 +67,7 @@ mcq:
   pricing-path: config/pricing.yml
   model-catalogue-path: config/models.yml
   benchmark-export-path: data/benchmark
+  run-plan-path: config/runs
   topics-file: ""
   competency-manifest: config/competencies.yml
   language: en
@@ -91,6 +92,19 @@ mcq:
     temperature: 0.2
     max-attempts: 3
     accept-threshold: 0.7
+    # Which failure modes can reject an item. All five are still judged and recorded on every item; these
+    # are the ones that gate acceptance.
+    #
+    # NEAR_DUPLICATE is deliberately absent. Because the aggregate is 1 minus the WORST severity, any mode
+    # listed here can reject on its own, and near-duplicate was rejecting sound questions for resembling
+    # the material -- which for a grounded generator is unavoidable, and for a competency whose declared
+    # taxonomy is REMEMBER is actually correct. The construct it was groping at is measured properly
+    # downstream by the benchmark's cognitive_level metric, against the bloom_intended level we export.
+    gating-modes:
+      - FACTUAL_ERROR
+      - AMBIGUOUS_CORRECT_ANSWER
+      - OFF_TOPIC
+      - ILL_FORMED_DISTRACTORS
   batch:
     database-path: data/run.db
     concurrency: 1

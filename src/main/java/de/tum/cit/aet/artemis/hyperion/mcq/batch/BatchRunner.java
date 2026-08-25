@@ -3,6 +3,7 @@ package de.tum.cit.aet.artemis.hyperion.mcq.batch;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -15,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.CallRecord;
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.FailureMode;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.GroundingContext;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.ItemProvenance;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.LengthStats;
@@ -88,7 +90,7 @@ public class BatchRunner {
      * @param maxOutputAttempts attempts allowed per stage before an item fails permanently
      */
     public record Settings(String runId, String configurationId, int topK, int maxGroundingTokens, List<Integer> difficultyLevels, String language, String generationModel,
-            double generationTemperature, int generationCallAttempts, String filterModel, double filterTemperature, int filterCallAttempts, double acceptThreshold,
+            double generationTemperature, int generationCallAttempts, String filterModel, double filterTemperature, int filterCallAttempts, double acceptThreshold, Set<FailureMode> gatingModes,
             int maxOutputAttempts, int concurrency) {
     }
 
@@ -265,7 +267,7 @@ public class BatchRunner {
         });
         GroundingContext grounding = ground(provenance.topic());
 
-        var result = dependencies.filter().evaluate(item, grounding, settings.acceptThreshold(), settings.filterModel(), settings.filterTemperature(),
+        var result = dependencies.filter().evaluate(item, grounding, settings.acceptThreshold(), settings.gatingModes(), settings.filterModel(), settings.filterTemperature(),
                 settings.filterCallAttempts(), dependencies.filterClient());
 
         List<CallRecord> calls = append(claim.callsJson(), result.call());

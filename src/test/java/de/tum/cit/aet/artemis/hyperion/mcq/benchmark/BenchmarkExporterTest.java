@@ -17,6 +17,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter.Condition;
 import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter.Granularity;
+import de.tum.cit.aet.artemis.hyperion.mcq.app.PipelineProperties;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.AnswerOption;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.FailureMode;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.FilterDecision;
@@ -38,7 +39,11 @@ class BenchmarkExporterTest {
 
     private RunStore store;
 
-    private final BenchmarkExporter exporter = new BenchmarkExporter();
+    /** No competency manifest configured, so the export carries no learning objective; covered separately. */
+    private final BenchmarkExporter exporter = new BenchmarkExporter(new PipelineProperties("corpus", "data/run-log.jsonl", "data/items.md", "data/extraction-report.csv",
+            "data/topics.csv", "data/retrieval-probe.csv", "config/pricing.yml", "config/models.yml", "data/benchmark", "config/runs", "", "", "en", List.of(50),
+            new PipelineProperties.Chunking(500, 1200, "data/index.json"), new PipelineProperties.Retrieval(8, 6000), new PipelineProperties.Generation("m", 0.7, 3),
+            new PipelineProperties.Filter("m", 0.2, 3, 0.7, java.util.Set.of(FailureMode.values())), new PipelineProperties.Batch("data/run.db", 1, 3)));
 
     private final JsonMapper mapper = StructuredOutputs.outputMapper();
 

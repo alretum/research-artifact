@@ -4,6 +4,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,7 +69,8 @@ public class McqFilterService {
      * @param chatClient  client to issue the call with
      * @return the result, which always carries a {@link CallRecord}
      */
-    public Result evaluate(McqItem item, GroundingContext grounding, double threshold, String model, double temperature, int maxAttempts, ChatClient chatClient) {
+    public Result evaluate(McqItem item, GroundingContext grounding, double threshold, Set<FailureMode> gatingModes, String model, double temperature, int maxAttempts,
+            ChatClient chatClient) {
         BeanOutputConverter<FilterOutput> converter = StructuredOutputs.converterFor(FilterOutput.class);
         String system = templates.render(SYSTEM_PROMPT, Map.of());
         String user = templates.render(USER_PROMPT,
@@ -103,7 +105,10 @@ public class McqFilterService {
             log.warn("Filter judged {} of {} modes; discarding incomplete verdict", verdicts.size(), FailureMode.values().length);
             return new Result(null, call.withFailureCategory("FILTER_INCOMPLETE_VERDICT"));
         }
-        double worstSeverity = verdicts.values().stream().mapToDouble(ModeVerdict::severity).max().orElse(1);
+        // Only the gating modes decide acceptance. The rest are judged and stored, because a mode worth
+        // measuring is not always a mode worth rejecting on.
+        Set<FailureMode> gating = gatingModes == null || gatingModes.isEmpty() ? verdicts.keySet() : gatingModes;
+        double worstSeverity = verdicts.entrySet().stream().filter(entry -> gating.contains(entry.getKey())).mapToDouble(entry -> entry.getValue().severity()).max().orElse(0);
         double meanSeverity = verdicts.values().stream().mapToDouble(ModeVerdict::severity).average().orElse(1);
         double aggregate = 1 - worstSeverity;
         return new Result(new FilterDecision(aggregate >= threshold, aggregate, meanSeverity, verdicts, model, output.rationale()), call);

@@ -8,7 +8,7 @@
         appears in every citation — so upload a folder, or a zip of folders, rather than loose files.</p>
 
     <div class="card" th:if="${staged == null}">
-        <form method="post" th:action="@{/corpus/upload}" enctype="multipart/form-data" id="uploadForm" class="inline">
+        <form method="post" th:action="@{/corpus/upload}" enctype="multipart/form-data" id="uploadForm" class="fields">
             <div>
                 <label for="folder">Pick a folder</label>
                 <input id="folder" type="file" webkitdirectory multiple>

@@ -21,11 +21,13 @@ import tools.jackson.databind.SerializationFeature;
 import tools.jackson.databind.json.JsonMapper;
 
 import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkQuiz.BenchmarkQuestion;
+import de.tum.cit.aet.artemis.hyperion.mcq.app.PipelineProperties;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.AnswerOption;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.FailureMode;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.FilterDecision;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.ItemProvenance;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.McqItem;
+import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyManifest;
 import de.tum.cit.aet.artemis.hyperion.mcq.llm.StructuredOutputs;
 import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore;
 import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore.CompletedItem;
@@ -47,6 +49,36 @@ public class BenchmarkExporter {
     private final JsonMapper mapper = JsonMapper.builder().enable(SerializationFeature.INDENT_OUTPUT).build();
 
     private final JsonMapper reader = StructuredOutputs.outputMapper();
+
+    private final PipelineProperties properties;
+
+    public BenchmarkExporter(PipelineProperties properties) {
+        this.properties = properties;
+    }
+
+    /**
+     * Load the competency manifest, which supplies the three metadata keys the benchmark actually reads.
+     * <p>
+     * Everything else we put in metadata is inert to it: only {@code bloom_intended}, {@code
+     * learning_objective} and, as prompt context, {@code topic} and {@code domain} are consulted. Without a
+     * learning objective the benchmark skips its objective-alignment metric entirely.
+     *
+     * @return competencies by title, which is what a topic key is, or empty when the manifest is unreadable
+     */
+    private Map<String, CompetencyManifest.Competency> competenciesByTopic() {
+        String path = properties.competencyManifest();
+        if (path == null || path.isBlank() || !Files.isRegularFile(Path.of(path))) {
+            return Map.of();
+        }
+        try {
+            return CompetencyManifest.load(Path.of(path)).competencies().stream()
+                    .collect(java.util.stream.Collectors.toMap(CompetencyManifest.Competency::title, competency -> competency, (first, second) -> first, LinkedHashMap::new));
+        }
+        catch (RuntimeException e) {
+            log.warn("Could not read the competency manifest at {}: {}. Exporting without learning objectives.", path, e.getMessage());
+            return Map.of();
+        }
+    }
 
     /**
      * What becomes one quiz file.
@@ -163,18 +195,19 @@ public class BenchmarkExporter {
             throw new UncheckedIOException("Failed to create export directories under " + directory, e);
         }
 
+        Map<String, CompetencyManifest.Competency> competencies = competenciesByTopic();
         Map<String, List<Loaded>> groups = new LinkedHashMap<>();
         loaded.forEach(item -> groups.computeIfAbsent(groupKey(item, granularity), key -> new ArrayList<>()).add(item));
 
         List<Path> written = new ArrayList<>();
         groups.forEach((key, items) -> {
             switch (condition) {
-                case ALL -> written.add(write(quizzes, instructions, key, items, granularity, "all", language));
-                case ACCEPTED -> written.add(write(quizzes, instructions, key, filter(items, true), granularity, "accepted", language));
-                case REJECTED -> written.add(write(quizzes, instructions, key, filter(items, false), granularity, "rejected", language));
+                case ALL -> written.add(write(quizzes, instructions, key, items, granularity, "all", language, competencies));
+                case ACCEPTED -> written.add(write(quizzes, instructions, key, filter(items, true), granularity, "accepted", language, competencies));
+                case REJECTED -> written.add(write(quizzes, instructions, key, filter(items, false), granularity, "rejected", language, competencies));
                 case SPLIT -> {
-                    written.add(write(quizzes, instructions, key, filter(items, true), granularity, "accepted", language));
-                    written.add(write(quizzes, instructions, key, filter(items, false), granularity, "rejected", language));
+                    written.add(write(quizzes, instructions, key, filter(items, true), granularity, "accepted", language, competencies));
+                    written.add(write(quizzes, instructions, key, filter(items, false), granularity, "rejected", language, competencies));
                 }
             }
         });
@@ -225,14 +258,15 @@ public class BenchmarkExporter {
         };
     }
 
-    private Path write(Path quizzes, Path instructionsDirectory, String key, List<Loaded> items, Granularity granularity, String conditionLabel, String language) {
+    private Path write(Path quizzes, Path instructionsDirectory, String key, List<Loaded> items, Granularity granularity, String conditionLabel, String language,
+            Map<String, CompetencyManifest.Competency> competencies) {
         if (items.isEmpty()) {
             return null;
         }
         String quizId = slug(key) + "__" + conditionLabel;
         List<BenchmarkQuestion> questions = new ArrayList<>();
         for (int index = 0; index < items.size(); index++) {
-            questions.add(question(items.get(index), "q" + (index + 1)));
+            questions.add(question(items.get(index), "q" + (index + 1), competencies.get(items.get(index).topic())));
         }
 
         Map<String, Object> metadata = new LinkedHashMap<>();
@@ -257,7 +291,7 @@ public class BenchmarkExporter {
         return file;
     }
 
-    private static BenchmarkQuestion question(Loaded loaded, String questionId) {
+    private static BenchmarkQuestion question(Loaded loaded, String questionId, CompetencyManifest.Competency competency) {
         McqItem item = loaded.item();
         List<String> options = item.options().stream().map(option -> option.text().strip()).toList();
         List<String> correct = item.options().stream().filter(AnswerOption::correct).map(option -> option.text().strip()).toList();
@@ -266,7 +300,16 @@ public class BenchmarkExporter {
         boolean single = correct.size() == 1;
 
         Map<String, Object> metadata = new LinkedHashMap<>();
+        // Keys the benchmark reads. bloom_intended comes from the competency's declared taxonomy, never
+        // from our filter's verdict: telling the judge what we concluded would make its comparison
+        // circular. Without learning_objective the benchmark skips objective alignment altogether.
         metadata.put("topic", loaded.topic());
+        if (competency != null) {
+            metadata.put("bloom_intended", competency.taxonomy() == null ? null : competency.taxonomy().name().toLowerCase(Locale.ROOT));
+            metadata.put("learning_objective", competency.description());
+            metadata.put("domain", competency.knowledgeArea());
+            metadata.values().removeIf(java.util.Objects::isNull);
+        }
         metadata.put("configuration_id", loaded.configurationId());
         metadata.put("run_id", loaded.runId());
         metadata.put("accepted", loaded.accepted());

@@ -1,6 +1,7 @@
 package de.tum.cit.aet.artemis.hyperion.mcq.app;
 
 import java.util.List;
+import java.util.Set;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
@@ -12,6 +13,8 @@ import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.FailureMode;
 import org.springframework.validation.annotation.Validated;
 
 /**
@@ -28,6 +31,7 @@ import org.springframework.validation.annotation.Validated;
  * @param pricingPath          YAML holding model prices, read only when reporting cost
  * @param modelCataloguePath   YAML declaring the backends and chat models a run plan may name
  * @param benchmarkExportPath  directory the benchmark export is written into
+ * @param runPlanPath          directory holding run plan files
  * @param topicsFile           optional file of explicit topics, one per line
  * @param competencyManifest   optional competency manifest; takes precedence over topicsFile and folder names
  * @param language             ISO 639-1 language code for generated questions
@@ -37,7 +41,7 @@ import org.springframework.validation.annotation.Validated;
 @Validated
 @ConfigurationProperties(prefix = "mcq")
 public record PipelineProperties(@NotBlank String corpusPath, @NotBlank String runLogPath, @NotBlank String itemsMarkdownPath, @NotBlank String extractionReportPath,
-        @NotBlank String topicReportPath, @NotBlank String retrievalProbePath, @NotBlank String pricingPath, @NotBlank String modelCataloguePath, @NotBlank String benchmarkExportPath, String topicsFile, String competencyManifest, @NotBlank String language,
+        @NotBlank String topicReportPath, @NotBlank String retrievalProbePath, @NotBlank String pricingPath, @NotBlank String modelCataloguePath, @NotBlank String benchmarkExportPath, @NotBlank String runPlanPath, String topicsFile, String competencyManifest, @NotBlank String language,
         @NotEmpty List<@Min(0) @Max(100) Integer> difficulty, @NotNull @Valid Chunking chunking, @NotNull @Valid Retrieval retrieval, @NotNull @Valid Generation generation,
         @NotNull @Valid Filter filter, @NotNull @Valid Batch batch) {
 
@@ -70,8 +74,14 @@ public record PipelineProperties(@NotBlank String corpusPath, @NotBlank String r
      * @param maxAttempts     total attempts per item including the first
      * @param acceptThreshold minimum aggregate score in [0, 1] required to accept an item
      */
+    /**
+     * @param gatingModes failure modes whose severity decides acceptance. Every mode is still judged and
+     *                    recorded; this only controls which ones can reject an item. The aggregate score is
+     *                    {@code 1 - worst severity among these}, so a mode listed here can single-handedly
+     *                    reject, which is why a mode measuring something arguable does not belong in it
+     */
     public record Filter(@NotBlank String model, @DecimalMin("0.0") @DecimalMax("2.0") double temperature, @Min(1) @Max(10) int maxAttempts,
-            @DecimalMin("0.0") @DecimalMax("1.0") double acceptThreshold) {
+            @DecimalMin("0.0") @DecimalMax("1.0") double acceptThreshold, @NotEmpty Set<FailureMode> gatingModes) {
     }
 
     /**

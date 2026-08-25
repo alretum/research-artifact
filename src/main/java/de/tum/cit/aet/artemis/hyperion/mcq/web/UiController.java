@@ -36,6 +36,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import de.tum.cit.aet.artemis.hyperion.mcq.plan.ModelCatalogue;
 import de.tum.cit.aet.artemis.hyperion.mcq.plan.RunPlan;
+import de.tum.cit.aet.artemis.hyperion.mcq.plan.RunPlanFiles;
 import de.tum.cit.aet.artemis.hyperion.mcq.upload.CorpusUploadService;
 import de.tum.cit.aet.artemis.hyperion.mcq.readiness.Readiness;
 import de.tum.cit.aet.artemis.hyperion.mcq.readiness.ReadinessService;
@@ -182,6 +183,23 @@ public class UiController {
      *         key set. A backend with no key is skipped rather than offered, because selecting it would
      *         only fail when the run starts.
      */
+    /**
+     * @return catalogue keys usable right now, which is what a plan references — as opposed to the
+     *         provider model names the run form uses
+     */
+    private List<String> usableModelKeys() {
+        try {
+            ModelCatalogue catalogue = ModelCatalogue.load(Path.of(properties.modelCataloguePath()));
+            return catalogue.models().values().stream().filter(entry -> {
+                String key = System.getenv(catalogue.backendFor(entry).apiKeyEnv());
+                return key != null && !key.isBlank();
+            }).map(ModelCatalogue.ModelEntry::key).distinct().sorted().toList();
+        }
+        catch (RuntimeException e) {
+            return List.of();
+        }
+    }
+
     private List<String> usableModels() {
         try {
             ModelCatalogue catalogue = ModelCatalogue.load(Path.of(properties.modelCataloguePath()));
@@ -208,7 +226,13 @@ public class UiController {
      * @param file           path of the plan file
      * @param problem        why it cannot run, or {@code null} when it can
      */
-    public record PlanView(String file, String name, int itemsPerTopic, List<String> topics, List<RunPlan.RunConfiguration> configurations, String problem) {
+    public record PlanView(String file, String fileName, String name, int itemsPerTopic, List<String> topics, List<RunPlan.RunConfiguration> configurations, int topicCount,
+            String problem) {
+
+        /** @return how many items running this plan as written would produce */
+        public int totalItems() {
+            return configurations.size() * topicCount * itemsPerTopic;
+        }
     }
 
     /**
@@ -220,7 +244,8 @@ public class UiController {
     @GetMapping("/plans")
     public String plans(Model model) {
         List<PlanView> views = new java.util.ArrayList<>();
-        Path directory = Path.of("config/runs");
+        int groundedTopics = (int) corpus.index().topics().stream().filter(topic -> topic.grounded()).count();
+        Path directory = Path.of(properties.runPlanPath());
         if (Files.isDirectory(directory)) {
             try (Stream<Path> files = Files.list(directory)) {
                 for (Path file : files.filter(path -> path.toString().endsWith(".yml")).sorted().toList()) {
@@ -240,10 +265,13 @@ public class UiController {
                         catch (RuntimeException e) {
                             problem = e.getMessage();
                         }
-                        views.add(new PlanView(file.toString(), plan.plan(), plan.itemsPerTopic(), plan.topics(), plan.configurations(), problem));
+                        int topicCount = plan.topics().isEmpty() ? groundedTopics : plan.topics().size();
+                        views.add(new PlanView(file.toString(), file.getFileName().toString(), plan.plan(), plan.itemsPerTopic(), plan.topics(), plan.configurations(), topicCount,
+                                problem));
                     }
                     catch (RuntimeException e) {
-                        views.add(new PlanView(file.toString(), file.getFileName().toString(), 0, List.of(), List.of(), "Could not read: " + e.getMessage()));
+                        views.add(new PlanView(file.toString(), file.getFileName().toString(), file.getFileName().toString(), 0, List.of(), List.of(), 0,
+                                "Could not read: " + e.getMessage()));
                     }
                 }
             }
@@ -252,6 +280,8 @@ public class UiController {
             }
         }
         model.addAttribute("plans", views);
+        model.addAttribute("modelOptions", usableModelKeys());
+        model.addAttribute("topics", corpus.index().topics());
         model.addAttribute("plan", runs.planProgress().orElse(null));
         model.addAttribute("activeRunId", runs.activeRunId().orElse(null));
         return "plans";
@@ -264,10 +294,63 @@ public class UiController {
      * @param flash redirect attributes
      * @return a redirect to the plans view
      */
-    @PostMapping("/plans/run")
-    public String runPlan(@RequestParam String file, RedirectAttributes flash) {
+    /**
+     * Create a plan whose configurations are every pairing of the chosen generators and filters.
+     * <p>
+     * The cross product rather than a row editor, because the pairing matrix is the thing worth running:
+     * the cells where one model judges another are the only ones whose accept rate is not partly a model
+     * agreeing with itself.
+     *
+     * @param name          plan name
+     * @param itemsPerTopic items per topic per configuration
+     * @param topics        topics to restrict to; empty means every grounded topic
+     * @param generators    catalogue keys of generator models
+     * @param filters       catalogue keys of filter models
+     * @param flash         redirect attributes
+     * @return a redirect to the plans view
+     */
+    @PostMapping("/plans/create")
+    public String createPlan(@RequestParam String name, @RequestParam(defaultValue = "4") int itemsPerTopic, @RequestParam(required = false) List<String> topics,
+            @RequestParam(required = false) List<String> generators, @RequestParam(required = false) List<String> filters, RedirectAttributes flash) {
         try {
-            runs.startPlan(RunPlan.load(Path.of(file)));
+            Path file = RunPlanFiles.create(Path.of(properties.runPlanPath()), name, itemsPerTopic, topics == null ? List.of() : topics,
+                    generators == null ? List.of() : generators, filters == null ? List.of() : filters);
+            int cells = (generators == null ? 0 : generators.size()) * (filters == null ? 0 : filters.size());
+            flash.addFlashAttribute("message", "Created " + file.getFileName() + " with " + cells + " configuration(s).");
+        }
+        catch (RuntimeException e) {
+            flash.addFlashAttribute("error", e.getMessage());
+        }
+        return "redirect:/plans";
+    }
+
+    /**
+     * Delete a plan file.
+     *
+     * @param fileName name of the plan file
+     * @param flash    redirect attributes
+     * @return a redirect to the plans view
+     */
+    @PostMapping("/plans/delete")
+    public String deletePlan(@RequestParam String fileName, RedirectAttributes flash) {
+        if (runs.activeRunId().isPresent()) {
+            flash.addFlashAttribute("error", "Something is running; deleting a plan now could remove the one being executed.");
+            return "redirect:/plans";
+        }
+        try {
+            RunPlanFiles.delete(Path.of(properties.runPlanPath()), fileName);
+            flash.addFlashAttribute("message", "Deleted " + fileName + ". Items it already produced are untouched.");
+        }
+        catch (RuntimeException e) {
+            flash.addFlashAttribute("error", e.getMessage());
+        }
+        return "redirect:/plans";
+    }
+
+    @PostMapping("/plans/run")
+    public String runPlan(@RequestParam String file, @RequestParam(required = false) Integer itemsPerTopic, RedirectAttributes flash) {
+        try {
+            runs.startPlan(RunPlan.load(Path.of(file)), itemsPerTopic);
             flash.addFlashAttribute("message", "Plan started. Cells run one after another; this page shows progress.");
         }
         catch (RuntimeException e) {

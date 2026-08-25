@@ -253,17 +253,24 @@ public class RunManager {
      * inflate each other's per-call latency so that no cell's timings could be reported. Each cell gets its
      * own run id and carries the plan's declared configuration id, so the cells stay separable afterwards.
      *
-     * @param runPlan the plan to execute
+     * @param runPlan             the plan to execute
+     * @param itemsPerTopicOverride items per topic for this execution, or {@code null} to use the plan's own
+     *                              value. An override lets the same plan be tried at a small size before it
+     *                              is run at full size, without editing the file
      * @throws IllegalStateException    if a run or plan is already executing
      * @throws IllegalArgumentException if the plan names a model that is not declared
      */
-    public synchronized void startPlan(RunPlan runPlan) {
+    public synchronized void startPlan(RunPlan runPlan, Integer itemsPerTopicOverride) {
         requireIdle();
         ModelCatalogue catalogue = ModelCatalogue.load(Path.of(properties.modelCataloguePath()));
         runPlan.validateAgainst(catalogue);
         ModelRegistry registry = new ModelRegistry(catalogue, chatClientBuilder.build());
         registry.validate(runPlan);
 
+        int itemsPerTopic = itemsPerTopicOverride == null ? runPlan.itemsPerTopic() : itemsPerTopicOverride;
+        if (itemsPerTopic < 1) {
+            throw new IllegalArgumentException("Items per topic must be at least 1");
+        }
         List<String> cells = runPlan.configurations().stream().map(RunPlan.RunConfiguration::id).toList();
         Map<String, String> runIds = new java.util.LinkedHashMap<>();
         runPlan.configurations().forEach(configuration -> runIds.put(configuration.id(), runPlan.plan() + "-" + configuration.id()));
@@ -298,8 +305,8 @@ public class RunManager {
                             new BatchRunner.Dependencies(index.source(), groundingAssembly, generation, filter, generator.client(), filterModel.client(),
                                     topics.stream().map(topic -> new TopicQuery(topic.key(), topic.query())).toList()));
                     runner.onStopRequested(stopRequested::get);
-                    runner.enqueueTopics(topics.stream().map(Topic::key).toList(), runPlan.itemsPerTopic());
-                    log.info("Plan '{}': running cell {}", runPlan.plan(), configuration.id());
+                    runner.enqueueTopics(topics.stream().map(Topic::key).toList(), itemsPerTopic);
+                    log.info("Plan '{}': running cell {} ({} item(s) per topic across {} topic(s))", runPlan.plan(), configuration.id(), itemsPerTopic, topics.size());
                     runner.run();
                     exportQuietly(runId);
                     done.add(configuration.id());
@@ -312,7 +319,8 @@ public class RunManager {
                 plan = new PlanProgress(runPlan.plan(), cells, List.copyOf(done), null, Map.copyOf(runIds), true);
             }
         });
-        active = new Active(runPlan.plan(), runPlan.configurations().size() + " configuration(s)", Instant.now(), stopRequested, future);
+        active = new Active(runPlan.plan(), runPlan.configurations().size() + " configuration(s) x " + topics.size() + " topic(s) x " + itemsPerTopic + " item(s)", Instant.now(),
+                stopRequested, future);
     }
 
     /** @return the plan currently executing or last finished, if any */
@@ -323,7 +331,7 @@ public class RunManager {
     private BatchRunner.Settings planSettings(String runId, String configurationId, Effective effective, String generator, String filterModel) {
         return new BatchRunner.Settings(runId, configurationId, properties.retrieval().topK(), properties.retrieval().maxGroundingTokens(), effective.difficultyLevels(),
                 properties.language(), generator, properties.generation().temperature(), properties.generation().maxAttempts(), filterModel,
-                properties.filter().temperature(), properties.filter().maxAttempts(), effective.acceptThreshold(), properties.batch().maxOutputAttempts(),
+                properties.filter().temperature(), properties.filter().maxAttempts(), effective.acceptThreshold(), properties.filter().gatingModes(), properties.batch().maxOutputAttempts(),
                 properties.batch().concurrency());
     }
 
@@ -442,7 +450,7 @@ public class RunManager {
         List<TopicQuery> queries = index.topics().stream().map(topic -> new TopicQuery(topic.key(), topic.query())).toList();
         BatchRunner.Settings settings = new BatchRunner.Settings(runId, effective.configurationId(), properties.retrieval().topK(), properties.retrieval().maxGroundingTokens(),
                 effective.difficultyLevels(), properties.language(), effective.generatorModel(), properties.generation().temperature(), properties.generation().maxAttempts(),
-                effective.filterModel(), properties.filter().temperature(), properties.filter().maxAttempts(), effective.acceptThreshold(),
+                effective.filterModel(), properties.filter().temperature(), properties.filter().maxAttempts(), effective.acceptThreshold(), properties.filter().gatingModes(),
                 properties.batch().maxOutputAttempts(), concurrency == null ? properties.batch().concurrency() : concurrency);
         return new BatchRunner(store, settings, new BatchRunner.Dependencies(index.source(), groundingAssembly, generation, filter, chatClientBuilder.build(), queries));
     }
@@ -454,7 +462,7 @@ public class RunManager {
      */
     private String manifest(Effective effective) {
         var index = corpus.index();
-        return String.join("\n", "generator=" + effective.generatorModel(), "filter=" + effective.filterModel(), "acceptThreshold=" + effective.acceptThreshold(),
+        return String.join("\n", "generator=" + effective.generatorModel(), "filter=" + effective.filterModel(), "acceptThreshold=" + effective.acceptThreshold(), "gatingModes=" + properties.filter().gatingModes(),
                 "difficulty=" + effective.difficultyLevels(), "retrieval=" + properties.retrieval(), "chunking=" + properties.chunking(),
                 "language=" + properties.language(), "chunks=" + index.chunkCount());
     }

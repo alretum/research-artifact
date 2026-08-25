@@ -136,8 +136,13 @@ class McqFilterServiceTest {
         assertThat(result.call().outcome()).isEqualTo("error");
     }
 
+    /** All five modes gate, which is the behaviour these tests were written against. */
     private McqFilterService.Result evaluate(double threshold) {
-        return service.evaluate(item(), grounding(), threshold, "test-model", 0.2, 1, chatClient);
+        return service.evaluate(item(), grounding(), threshold, java.util.Set.of(FailureMode.values()), "test-model", 0.2, 1, chatClient);
+    }
+
+    private McqFilterService.Result evaluateGatingOn(double threshold, FailureMode... gating) {
+        return service.evaluate(item(), grounding(), threshold, java.util.Set.of(gating), "test-model", 0.2, 1, chatClient);
     }
 
     private void respondWith(String content) {
