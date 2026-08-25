@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Plans', ~{::body-content})}">
+<body>
+<th:block th:fragment="body-content">
+
+    <h2>Run plans</h2>
+    <p class="muted">A plan runs several generator/filter pairings over the same topics, so their results can
+        be compared. Cells run one after another: the model server is the scarce resource, and running them
+        at once would inflate each other's latency so no cell's timings could be reported.</p>
+
+    <div class="notice" th:if="${plan != null and not plan.finished()}">
+        <strong th:text="'Running plan ' + ${plan.name()}"></strong>
+        <span th:text="'— cell ' + ${plan.currentCell()} + ', ' + ${#lists.size(plan.completed())} + ' of ' + ${#lists.size(plan.cells())} + ' done'"></span>
+    </div>
+    <div class="notice" th:if="${plan != null and plan.finished()}">
+        Plan <span th:text="${plan.name()}"></span> finished
+        <span th:text="'(' + ${#lists.size(plan.completed())} + ' of ' + ${#lists.size(plan.cells())} + ' cells)'"></span>.
+        <a th:href="@{/export}">Export the results</a>
+    </div>
+
+    <div class="card" th:each="p : ${plans}">
+        <h3 th:text="${p.name()}"></h3>
+        <p class="muted" th:text="${p.file()}"></p>
+        <p th:text="${#lists.size(p.configurations())} + ' configuration(s), ' + ${p.itemsPerTopic()} + ' item(s) per topic, over ' + (${#lists.isEmpty(p.topics())} ? 'every grounded topic' : ${#lists.size(p.topics())} + ' named topic(s)')"></p>
+
+        <table class="checks">
+            <tr><td class="name">Configuration</td><td>Generator</td><td>Filter</td><td></td></tr>
+            <tr th:each="c : ${p.configurations()}">
+                <td class="name" th:text="${c.id()}"></td>
+                <td th:text="${c.generator()}"></td>
+                <td th:text="${c.filter()}"></td>
+                <td th:if="${c.isSelfJudging()}" class="muted">judges its own output</td>
+                <td th:unless="${c.isSelfJudging()}"></td>
+            </tr>
+        </table>
+
+        <div class="notice error" th:if="${p.problem() != null}" th:text="${p.problem()}"></div>
+        <form method="post" th:action="@{/plans/run}" th:if="${p.problem() == null}">
+            <input type="hidden" name="file" th:value="${p.file()}">
+            <button class="primary" type="submit" th:disabled="${activeRunId != null}">Run this plan</button>
+        </form>
+        <span class="muted" th:if="${activeRunId != null}">Something is already running.</span>
+    </div>
+
+    <div class="card" th:if="${#lists.isEmpty(plans)}">
+        <p class="muted">No plans found in <span class="pill">config/runs/</span>. A plan is a small YAML file
+            listing configurations; see <span class="pill">config/runs/baseline.yml</span>.</p>
+    </div>
+
+</th:block>
+</body>
+</html>

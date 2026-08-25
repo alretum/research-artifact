@@ -1,6 +1,8 @@
 package de.tum.cit.aet.artemis.hyperion.mcq.plan;
 
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.ai.chat.client.ChatClient;
 
@@ -20,6 +22,9 @@ public class ModelRegistry {
     private final ModelCatalogue catalogue;
 
     private final ChatClient defaultClient;
+
+    /** One client per non-default backend, built on first use and reused for every model on it. */
+    private final Map<String, ChatClient> byBackend = new ConcurrentHashMap<>();
 
     /**
      * @param catalogue     declared backends and models
@@ -43,18 +48,17 @@ public class ModelRegistry {
      * @param modelKey key as written in a run plan
      * @return the model name and the client to use
      * @throws IllegalArgumentException      if the key or its backend is not declared
-     * @throws UnsupportedOperationException if the model needs a backend that has no client yet
+     * @throws IllegalStateException         if the backend's key variable is unset
      */
     public ResolvedModel resolve(String modelKey) {
         ModelEntry entry = catalogue.requireModel(modelKey);
         Backend backend = catalogue.backendFor(entry);
-        if (!backend.isDefault()) {
-            throw new UnsupportedOperationException("Model '" + modelKey + "' is served by backend '" + backend.name() + "' (" + backend.baseUrl()
-                    + "), which has no client. Only the default backend is wired. To add this one: build a ChatClient for its base URL with the key from $" + backend.apiKeyEnv()
-                    + ", and hand it to this registry. Models on the default backend need no such work.");
-        }
         requireKey(backend);
-        return new ResolvedModel(entry.model(), defaultClient);
+        if (backend.isDefault()) {
+            return new ResolvedModel(entry.model(), defaultClient);
+        }
+        ChatClient client = byBackend.computeIfAbsent(backend.name(), name -> BackendClientFactory.create(backend, System.getenv(backend.apiKeyEnv())));
+        return new ResolvedModel(entry.model(), client);
     }
 
     /**
@@ -62,7 +66,7 @@ public class ModelRegistry {
      *
      * @param plan the plan to check
      * @throws IllegalArgumentException      if a model or backend is not declared
-     * @throws UnsupportedOperationException if a model needs a backend that has no client yet
+     * @throws IllegalStateException         if a backend's key variable is unset
      */
     public void validate(RunPlan plan) {
         plan.referencedModels().forEach(this::resolve);

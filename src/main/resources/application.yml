@@ -15,6 +15,12 @@ server:
 spring:
   main:
     banner-mode: off
+  servlet:
+    multipart:
+      # Lecture PDFs run to several MB each and a whole course to tens of MB. Spring's defaults are 1MB
+      # per file and 10MB per request, which would reject essentially every real upload.
+      max-file-size: 200MB
+      max-request-size: 2GB
   thymeleaf:
     cache: false
   ai:

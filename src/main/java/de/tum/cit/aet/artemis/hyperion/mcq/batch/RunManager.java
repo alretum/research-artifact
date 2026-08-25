@@ -23,7 +23,12 @@ import de.tum.cit.aet.artemis.hyperion.mcq.batch.BatchRunner.TopicQuery;
 import de.tum.cit.aet.artemis.hyperion.mcq.filter.McqFilterService;
 import de.tum.cit.aet.artemis.hyperion.mcq.generation.McqGenerationService;
 import de.tum.cit.aet.artemis.hyperion.mcq.grounding.GroundingAssemblyService;
+import java.nio.file.Path;
+
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CorpusIndexService;
+import de.tum.cit.aet.artemis.hyperion.mcq.plan.ModelCatalogue;
+import de.tum.cit.aet.artemis.hyperion.mcq.plan.ModelRegistry;
+import de.tum.cit.aet.artemis.hyperion.mcq.plan.RunPlan;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.TopicCatalogue.Topic;
 import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore;
 import de.tum.cit.aet.artemis.hyperion.mcq.telemetry.RunExporter;
@@ -63,6 +68,22 @@ public class RunManager {
     });
 
     private volatile Active active;
+
+    /** The plan currently executing, if any, so the interface can show progress across its cells. */
+    private volatile PlanProgress plan;
+
+    /**
+     * How far a plan has got.
+     *
+     * @param name          the plan's name
+     * @param cells         configuration ids in the order they will run
+     * @param completed     cells already finished
+     * @param currentCell   the cell executing now, or {@code null} when the plan has finished
+     * @param runIdsByCell  run id assigned to each cell, so its items can be found
+     * @param finished      whether every cell is done
+     */
+    public record PlanProgress(String name, List<String> cells, List<String> completed, String currentCell, Map<String, String> runIdsByCell, boolean finished) {
+    }
 
     /** A run currently executing. */
     private record Active(String runId, String description, Instant startedAt, AtomicBoolean stopRequested, Future<?> future) {
@@ -223,6 +244,87 @@ public class RunManager {
             log.warn("Could not read settings from the manifest of this run ({}); resuming with the configured defaults instead", e.getMessage());
             return defaults;
         }
+    }
+
+    /**
+     * Run every configuration of a plan, one after another, in the background.
+     * <p>
+     * Sequential because the model server is the scarce resource, and because concurrent cells would
+     * inflate each other's per-call latency so that no cell's timings could be reported. Each cell gets its
+     * own run id and carries the plan's declared configuration id, so the cells stay separable afterwards.
+     *
+     * @param runPlan the plan to execute
+     * @throws IllegalStateException    if a run or plan is already executing
+     * @throws IllegalArgumentException if the plan names a model that is not declared
+     */
+    public synchronized void startPlan(RunPlan runPlan) {
+        requireIdle();
+        ModelCatalogue catalogue = ModelCatalogue.load(Path.of(properties.modelCataloguePath()));
+        runPlan.validateAgainst(catalogue);
+        ModelRegistry registry = new ModelRegistry(catalogue, chatClientBuilder.build());
+        registry.validate(runPlan);
+
+        List<String> cells = runPlan.configurations().stream().map(RunPlan.RunConfiguration::id).toList();
+        Map<String, String> runIds = new java.util.LinkedHashMap<>();
+        runPlan.configurations().forEach(configuration -> runIds.put(configuration.id(), runPlan.plan() + "-" + configuration.id()));
+        plan = new PlanProgress(runPlan.plan(), cells, List.of(), cells.getFirst(), Map.copyOf(runIds), false);
+
+        var index = corpus.index();
+        List<Topic> topics = runPlan.topics().isEmpty() ? index.topics().stream().filter(Topic::grounded).toList()
+                : index.topics().stream().filter(topic -> runPlan.topics().contains(topic.key())).toList();
+        if (topics.isEmpty()) {
+            plan = null;
+            throw new IllegalArgumentException("Plan '" + runPlan.plan() + "' matched no grounded topics");
+        }
+
+        AtomicBoolean stopRequested = new AtomicBoolean();
+        Future<?> future = executor.submit(() -> {
+            List<String> done = new java.util.ArrayList<>();
+            try {
+                for (RunPlan.RunConfiguration configuration : runPlan.configurations()) {
+                    if (stopRequested.get()) {
+                        log.info("Plan '{}' stopped before {}", runPlan.plan(), configuration.id());
+                        break;
+                    }
+                    plan = new PlanProgress(runPlan.plan(), cells, List.copyOf(done), configuration.id(), Map.copyOf(runIds), false);
+                    String runId = runIds.get(configuration.id());
+                    var generator = registry.resolve(configuration.generator());
+                    var filterModel = registry.resolve(configuration.filter());
+                    Effective effective = new Effective(properties.difficulty(), properties.filter().acceptThreshold(), generator.model(), filterModel.model());
+
+                    store.registerRun(runId, configuration.id(), manifest(effective));
+                    store.releaseStaleClaims(runId);
+                    BatchRunner runner = new BatchRunner(store, planSettings(runId, configuration.id(), effective, generator.model(), filterModel.model()),
+                            new BatchRunner.Dependencies(index.source(), groundingAssembly, generation, filter, generator.client(), filterModel.client(),
+                                    topics.stream().map(topic -> new TopicQuery(topic.key(), topic.query())).toList()));
+                    runner.onStopRequested(stopRequested::get);
+                    runner.enqueueTopics(topics.stream().map(Topic::key).toList(), runPlan.itemsPerTopic());
+                    log.info("Plan '{}': running cell {}", runPlan.plan(), configuration.id());
+                    runner.run();
+                    exportQuietly(runId);
+                    done.add(configuration.id());
+                }
+            }
+            catch (RuntimeException e) {
+                log.error("Plan '{}' failed", runPlan.plan(), e);
+            }
+            finally {
+                plan = new PlanProgress(runPlan.plan(), cells, List.copyOf(done), null, Map.copyOf(runIds), true);
+            }
+        });
+        active = new Active(runPlan.plan(), runPlan.configurations().size() + " configuration(s)", Instant.now(), stopRequested, future);
+    }
+
+    /** @return the plan currently executing or last finished, if any */
+    public Optional<PlanProgress> planProgress() {
+        return Optional.ofNullable(plan);
+    }
+
+    private BatchRunner.Settings planSettings(String runId, String configurationId, Effective effective, String generator, String filterModel) {
+        return new BatchRunner.Settings(runId, configurationId, properties.retrieval().topK(), properties.retrieval().maxGroundingTokens(), effective.difficultyLevels(),
+                properties.language(), generator, properties.generation().temperature(), properties.generation().maxAttempts(), filterModel,
+                properties.filter().temperature(), properties.filter().maxAttempts(), effective.acceptThreshold(), properties.batch().maxOutputAttempts(),
+                properties.batch().concurrency());
     }
 
     /**

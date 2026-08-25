@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Corpus', ~{::body-content})}">
+<body>
+<th:block th:fragment="body-content">
+
+    <h2>Lecture material</h2>
+    <p class="muted">Only PDFs are ingested. The first directory level names the lecture, and that name
+        appears in every citation — so upload a folder, or a zip of folders, rather than loose files.</p>
+
+    <div class="card" th:if="${staged == null}">
+        <form method="post" th:action="@{/corpus/upload}" enctype="multipart/form-data" id="uploadForm" class="inline">
+            <div>
+                <label for="folder">Pick a folder</label>
+                <input id="folder" type="file" webkitdirectory multiple>
+                <span class="muted">Keeps the folder structure. Chrome, Edge and Safari.</span>
+            </div>
+            <div>
+                <label for="archive">…or a zip / individual PDFs</label>
+                <input id="archive" type="file" name="files" multiple accept=".zip,.pdf">
+                <span class="muted">A zip keeps its structure anywhere, including Firefox.</span>
+            </div>
+            <button class="primary" type="submit">Upload</button>
+        </form>
+        <p class="muted">Nothing is added to the corpus yet — you will see what was found and can confirm or
+            discard it.</p>
+    </div>
+
+    <div class="card" th:if="${staged != null}">
+        <h3>Pending upload <span class="pill" th:text="${staged.uploadId()}"></span></h3>
+        <p th:text="${#lists.size(staged.files())} + ' file(s), ' + ${#numbers.formatDecimal(staged.totalBytes() / 1048576.0, 1, 1)} + ' MB, in ' + ${#lists.size(staged.lectures())} + ' lecture(s)'"></p>
+
+        <div class="notice error" th:if="${not #lists.isEmpty(staged.rejected())}">
+            <strong>Refused:</strong>
+            <ul><li th:each="r : ${staged.rejected()}" th:text="${r}"></li></ul>
+        </div>
+        <div class="notice" th:if="${not #lists.isEmpty(existing)}">
+            Adds to existing lecture(s): <span th:text="${#strings.listJoin(existing, ', ')}"></span>
+        </div>
+
+        <table class="checks">
+            <tr><td class="name">Document</td><td>Pages</td><td>Role</td><td>Language</td><td>Damaged tokens</td></tr>
+            <tr th:each="d : ${documents}">
+                <td class="name" th:text="${d.documentId()}"></td>
+                <td th:text="${d.pages()}"></td>
+                <td th:text="${d.role()}"></td>
+                <td th:text="${d.detectedLanguage()}"></td>
+                <td th:text="${d.suspectedDamagedTokens()}"></td>
+            </tr>
+        </table>
+        <p class="muted">Role is inferred from the filename and used for reporting, not for weighting.
+            Committing drops the cached index, so the next run re-embeds — a minute or so.</p>
+
+        <form method="post" th:action="@{'/corpus/upload/' + ${staged.uploadId()} + '/commit'}" style="display:inline">
+            <button class="primary" type="submit" th:disabled="${activeRunId != null}">Add to corpus</button>
+        </form>
+        <form method="post" th:action="@{'/corpus/upload/' + ${staged.uploadId()} + '/discard'}" style="display:inline">
+            <button type="submit">Discard</button>
+        </form>
+        <span class="muted" th:if="${activeRunId != null}">A run is executing; committing now would change the
+            material underneath it.</span>
+    </div>
+
+    <h2>In the corpus</h2>
+    <div class="card">
+        <table class="checks">
+            <tr th:each="l : ${lectures}">
+                <td class="name" th:text="${l.name()}"></td>
+                <td th:text="${l.pdfCount()} + ' PDF(s)'"></td>
+                <td>
+                    <form method="post" th:action="@{'/corpus/lectures/delete'}" onsubmit="return confirm('Remove this lecture from the corpus?')">
+                        <input type="hidden" name="lecture" th:value="${l.name()}">
+                        <button type="submit" th:disabled="${activeRunId != null}">Remove</button>
+                    </form>
+                </td>
+            </tr>
+            <tr th:if="${#lists.isEmpty(lectures)}"><td colspan="3" class="muted">Empty. Upload lecture material to begin.</td></tr>
+        </table>
+    </div>
+
+    <script>
+        // A folder picker exposes each file's path only as webkitRelativePath, which a plain form post
+        // does not send. Without it every file would arrive with a bare filename and be attributed to no
+        // lecture, so the paths are submitted alongside the files.
+        document.getElementById('uploadForm').addEventListener('submit', function (event) {
+            var folder = document.getElementById('folder');
+            if (!folder.files.length) { return; }
+            event.preventDefault();
+            var data = new FormData();
+            for (var i = 0; i < folder.files.length; i++) {
+                var file = folder.files[i];
+                if (!/\.(pdf|zip)$/i.test(file.name)) { continue; }
+                data.append('files', file);
+                data.append('paths', file.webkitRelativePath || file.name);
+            }
+            fetch(this.action, { method: 'POST', body: data, redirect: 'follow' })
+                .then(function (response) { window.location = response.url || '/corpus'; });
+        });
+    </script>
+
+</th:block>
+</body>
+</html>

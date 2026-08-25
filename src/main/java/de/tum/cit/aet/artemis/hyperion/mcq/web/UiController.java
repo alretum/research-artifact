@@ -32,7 +32,11 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter;
 import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter.Condition;
 import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter.Granularity;
+import org.springframework.web.multipart.MultipartFile;
+
 import de.tum.cit.aet.artemis.hyperion.mcq.plan.ModelCatalogue;
+import de.tum.cit.aet.artemis.hyperion.mcq.plan.RunPlan;
+import de.tum.cit.aet.artemis.hyperion.mcq.upload.CorpusUploadService;
 import de.tum.cit.aet.artemis.hyperion.mcq.readiness.Readiness;
 import de.tum.cit.aet.artemis.hyperion.mcq.readiness.ReadinessService;
 import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore;
@@ -61,9 +65,15 @@ public class UiController {
 
     private final BenchmarkExporter exporter;
 
-    public UiController(CorpusIndexService corpus, RunManager runs, RunStore store, ItemView itemView, PipelineProperties properties, ReadinessService readiness, BenchmarkExporter exporter) {
+    private final CorpusUploadService uploads;
+
+    /** Staged uploads awaiting a decision, so the preview can show what was refused. */
+    private final java.util.Map<String, CorpusUploadService.Staged> pending = new java.util.concurrent.ConcurrentHashMap<>();
+
+    public UiController(CorpusIndexService corpus, RunManager runs, RunStore store, ItemView itemView, PipelineProperties properties, ReadinessService readiness, BenchmarkExporter exporter, CorpusUploadService uploads) {
         this.readiness = readiness;
         this.exporter = exporter;
+        this.uploads = uploads;
         this.corpus = corpus;
         this.runs = runs;
         this.store = store;
@@ -168,18 +178,214 @@ public class UiController {
     }
 
     /**
-     * @return provider model names usable right now, that is those on the backend this application is
-     *         configured against. Models on other declared backends have no client, so offering them would
-     *         only produce a failure at run time.
+     * @return provider model names that can be used right now: every declared model whose backend has its
+     *         key set. A backend with no key is skipped rather than offered, because selecting it would
+     *         only fail when the run starts.
      */
     private List<String> usableModels() {
         try {
             ModelCatalogue catalogue = ModelCatalogue.load(Path.of(properties.modelCataloguePath()));
-            return catalogue.models().values().stream().filter(entry -> catalogue.backendFor(entry).isDefault()).map(ModelCatalogue.ModelEntry::model).distinct().sorted().toList();
+            return catalogue.models().values().stream().filter(entry -> {
+                String key = System.getenv(catalogue.backendFor(entry).apiKeyEnv());
+                return key != null && !key.isBlank();
+            }).map(ModelCatalogue.ModelEntry::model).distinct().sorted().toList();
         }
         catch (RuntimeException e) {
             return List.of();
         }
+    }
+
+    /**
+     * Show the corpus and any pending upload.
+     *
+     * @param uploadId a staging area to preview, when one has just been created
+     * @param model    view model
+     * @return the corpus view
+     */
+    /**
+     * A plan as the interface shows it, including why it cannot be run when that is the case.
+     *
+     * @param file           path of the plan file
+     * @param problem        why it cannot run, or {@code null} when it can
+     */
+    public record PlanView(String file, String name, int itemsPerTopic, List<String> topics, List<RunPlan.RunConfiguration> configurations, String problem) {
+    }
+
+    /**
+     * List the plans in the plan directory, validating each so a broken one is reported rather than offered.
+     *
+     * @param model view model
+     * @return the plans view
+     */
+    @GetMapping("/plans")
+    public String plans(Model model) {
+        List<PlanView> views = new java.util.ArrayList<>();
+        Path directory = Path.of("config/runs");
+        if (Files.isDirectory(directory)) {
+            try (Stream<Path> files = Files.list(directory)) {
+                for (Path file : files.filter(path -> path.toString().endsWith(".yml")).sorted().toList()) {
+                    try {
+                        RunPlan plan = RunPlan.load(file);
+                        String problem = null;
+                        try {
+                            ModelCatalogue catalogue = ModelCatalogue.load(Path.of(properties.modelCataloguePath()));
+                            plan.validateAgainst(catalogue);
+                            for (String key : plan.referencedModels()) {
+                                String env = catalogue.backendFor(catalogue.requireModel(key)).apiKeyEnv();
+                                if (System.getenv(env) == null || System.getenv(env).isBlank()) {
+                                    problem = "Model '" + key + "' needs $" + env + ", which is not set.";
+                                }
+                            }
+                        }
+                        catch (RuntimeException e) {
+                            problem = e.getMessage();
+                        }
+                        views.add(new PlanView(file.toString(), plan.plan(), plan.itemsPerTopic(), plan.topics(), plan.configurations(), problem));
+                    }
+                    catch (RuntimeException e) {
+                        views.add(new PlanView(file.toString(), file.getFileName().toString(), 0, List.of(), List.of(), "Could not read: " + e.getMessage()));
+                    }
+                }
+            }
+            catch (java.io.IOException e) {
+                model.addAttribute("error", "Could not list " + directory + ": " + e.getMessage());
+            }
+        }
+        model.addAttribute("plans", views);
+        model.addAttribute("plan", runs.planProgress().orElse(null));
+        model.addAttribute("activeRunId", runs.activeRunId().orElse(null));
+        return "plans";
+    }
+
+    /**
+     * Start every configuration of a plan.
+     *
+     * @param file  plan file to run
+     * @param flash redirect attributes
+     * @return a redirect to the plans view
+     */
+    @PostMapping("/plans/run")
+    public String runPlan(@RequestParam String file, RedirectAttributes flash) {
+        try {
+            runs.startPlan(RunPlan.load(Path.of(file)));
+            flash.addFlashAttribute("message", "Plan started. Cells run one after another; this page shows progress.");
+        }
+        catch (RuntimeException e) {
+            log.warn("Could not start plan: {}", e.getMessage());
+            flash.addFlashAttribute("error", e.getMessage());
+        }
+        return "redirect:/plans";
+    }
+
+    @GetMapping("/corpus")
+    public String corpus(@RequestParam(required = false) String uploadId, Model model) {
+        model.addAttribute("lectures", uploads.lectures());
+        model.addAttribute("activeRunId", runs.activeRunId().orElse(null));
+        if (uploadId != null && !uploadId.isBlank()) {
+            try {
+                CorpusUploadService.Preview preview = uploads.preview(uploadId);
+                model.addAttribute("staged", pending.get(uploadId));
+                model.addAttribute("documents", preview.documents());
+                model.addAttribute("existing", preview.existing());
+            }
+            catch (RuntimeException e) {
+                model.addAttribute("error", e.getMessage());
+            }
+        }
+        return "upload";
+    }
+
+    /**
+     * Take an upload into staging. Nothing reaches the corpus until it is committed.
+     *
+     * @param files uploaded parts
+     * @param paths corpus-relative path per file, as a folder picker supplies
+     * @param flash redirect attributes
+     * @return a redirect to the preview
+     */
+    @PostMapping("/corpus/upload")
+    public String upload(@RequestParam("files") List<MultipartFile> files, @RequestParam(name = "paths", required = false) List<String> paths, RedirectAttributes flash) {
+        try {
+            CorpusUploadService.Staged staged = uploads.stage(files, paths);
+            if (staged.files().isEmpty()) {
+                uploads.discard(staged.uploadId());
+                flash.addFlashAttribute("error", "Nothing usable in that upload. " + String.join("; ", staged.rejected()));
+                return "redirect:/corpus";
+            }
+            pending.put(staged.uploadId(), staged);
+            return "redirect:/corpus?uploadId=" + staged.uploadId();
+        }
+        catch (RuntimeException e) {
+            log.warn("Upload failed: {}", e.getMessage());
+            flash.addFlashAttribute("error", e.getMessage());
+            return "redirect:/corpus";
+        }
+    }
+
+    /**
+     * Move a staged upload into the corpus.
+     *
+     * @param uploadId the staging area
+     * @param flash    redirect attributes
+     * @return a redirect to the corpus view
+     */
+    @PostMapping("/corpus/upload/{uploadId}/commit")
+    public String commitUpload(@PathVariable String uploadId, RedirectAttributes flash) {
+        if (runs.activeRunId().isPresent()) {
+            flash.addFlashAttribute("error", "A run is executing. Committing now would change the material it is generating from.");
+            return "redirect:/corpus?uploadId=" + uploadId;
+        }
+        try {
+            int moved = uploads.commit(uploadId);
+            pending.remove(uploadId);
+            flash.addFlashAttribute("message", "Added " + moved + " file(s). The index was dropped and will rebuild on the next run.");
+        }
+        catch (RuntimeException e) {
+            flash.addFlashAttribute("error", e.getMessage());
+        }
+        return "redirect:/corpus";
+    }
+
+    /**
+     * Throw away a staged upload.
+     *
+     * @param uploadId the staging area
+     * @param flash    redirect attributes
+     * @return a redirect to the corpus view
+     */
+    @PostMapping("/corpus/upload/{uploadId}/discard")
+    public String discardUpload(@PathVariable String uploadId, RedirectAttributes flash) {
+        try {
+            uploads.discard(uploadId);
+            pending.remove(uploadId);
+            flash.addFlashAttribute("message", "Discarded. Nothing was added to the corpus.");
+        }
+        catch (RuntimeException e) {
+            flash.addFlashAttribute("error", e.getMessage());
+        }
+        return "redirect:/corpus";
+    }
+
+    /**
+     * Remove a lecture, so a mistaken commit can be undone without filesystem access.
+     *
+     * @param lecture lecture directory name
+     * @param flash   redirect attributes
+     * @return a redirect to the corpus view
+     */
+    @PostMapping("/corpus/lectures/delete")
+    public String deleteLecture(@RequestParam String lecture, RedirectAttributes flash) {
+        if (runs.activeRunId().isPresent()) {
+            flash.addFlashAttribute("error", "A run is executing; removing material now would change what it is generating from.");
+            return "redirect:/corpus";
+        }
+        try {
+            flash.addFlashAttribute("message", "Removed " + uploads.deleteLecture(lecture) + " file(s) from '" + lecture + "'.");
+        }
+        catch (RuntimeException e) {
+            flash.addFlashAttribute("error", e.getMessage());
+        }
+        return "redirect:/corpus";
     }
 
     @GetMapping("/export")

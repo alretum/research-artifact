@@ -74,6 +74,26 @@ public class CorpusIndexService {
     }
 
     /**
+     * Drop the cached index so the next request rebuilds it.
+     * <p>
+     * Also deletes the on-disk cache, because it is keyed on a fingerprint of the corpus and the embedding
+     * model; leaving a stale file would have the next run silently reuse an index that no longer matches
+     * the material. Called after the corpus changes.
+     */
+    public synchronized void invalidate() {
+        index = null;
+        java.nio.file.Path cache = java.nio.file.Path.of(properties.chunking().indexPath());
+        try {
+            if (java.nio.file.Files.deleteIfExists(cache)) {
+                log.info("Corpus changed: dropped the cached index at {}; it will be rebuilt on next use", cache);
+            }
+        }
+        catch (java.io.IOException e) {
+            log.warn("Could not delete the cached index at {}: {}. Delete it by hand before the next run.", cache, e.getMessage());
+        }
+    }
+
+    /**
      * @return {@code true} when the corpus has already been indexed
      */
     public boolean isLoaded() {
