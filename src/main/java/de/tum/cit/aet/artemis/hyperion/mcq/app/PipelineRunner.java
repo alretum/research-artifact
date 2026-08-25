@@ -20,6 +20,7 @@ import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter;
 import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter.Condition;
 import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter.Granularity;
 import de.tum.cit.aet.artemis.hyperion.mcq.cost.CostReporter;
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.FilterDecision;
 import de.tum.cit.aet.artemis.hyperion.mcq.plan.ModelCatalogue;
 import de.tum.cit.aet.artemis.hyperion.mcq.plan.ModelRegistry;
 import de.tum.cit.aet.artemis.hyperion.mcq.plan.RunPlan;
@@ -95,6 +96,8 @@ public class PipelineRunner implements ApplicationRunner {
 
     private final ReadinessService readiness;
 
+    private final tools.jackson.databind.json.JsonMapper mapper = de.tum.cit.aet.artemis.hyperion.mcq.llm.StructuredOutputs.outputMapper();
+
     public PipelineRunner(PipelineProperties properties, EmbeddingModel embeddingModel, ChatClient.Builder chatClientBuilder, GroundingAssemblyService groundingAssembly,
             McqGenerationService generation, McqFilterService filter, RunLogWriter runLog, ExtractionReportWriter reportWriter, CompositionReporter compositionReporter, RunExporter exporter, ThresholdSweep sweep, FailureReporter failures, CostReporter cost, BenchmarkExporter benchmark, ReadinessService readiness) {
         this.properties = properties;
@@ -120,7 +123,7 @@ public class PipelineRunner implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         this.arguments = args;
         if (!args.containsOption("count") && !args.containsOption("resume") && !args.containsOption("report") && !args.containsOption("sweep")
-                && !args.containsOption("cost") && !args.containsOption("plan") && !args.containsOption("run-plan") && !args.containsOption("export-benchmark") && !args.containsOption("doctor") && !args.containsOption("retrieval-only")) {
+                && !args.containsOption("cost") && !args.containsOption("plan") && !args.containsOption("run-plan") && !args.containsOption("export-benchmark") && !args.containsOption("doctor") && !args.containsOption("redecide") && !args.containsOption("retrieval-only")) {
             log.info("No command argument given; the web interface is available at http://localhost:8080");
             return;
         }
@@ -144,6 +147,10 @@ public class PipelineRunner implements ApplicationRunner {
         }
         if (args.containsOption("run-plan")) {
             runPlan(Path.of(args.getOptionValues("run-plan").getFirst()));
+            return;
+        }
+        if (args.containsOption("redecide")) {
+            redecide();
             return;
         }
         if (args.containsOption("doctor")) {
@@ -392,6 +399,42 @@ public class PipelineRunner implements ApplicationRunner {
             log.warn("Every configuration has one model both writing and judging, so accept rate includes self-agreement. "
                     + "Add a configuration with a different filter model to measure independently.");
         }
+    }
+
+    /**
+     * Recompute every stored decision from the severities already judged, under the current threshold and
+     * gating modes, and write the results back.
+     * <p>
+     * Needs no model call: the five severities per item are already stored, and the decision is a function
+     * of them. Changing which modes may reject therefore does not require regenerating anything. The
+     * previous decisions are overwritten.
+     */
+    private void redecide() {
+        int changed = 0;
+        int accepted = 0;
+        int total = 0;
+        try (RunStore store = new RunStore(Path.of(properties.batch().databasePath()))) {
+            for (String runId : store.runIds()) {
+                for (RunStore.CompletedItem item : store.completedItems(runId)) {
+                    if (item.decisionJson() == null || item.decisionJson().isBlank()) {
+                        continue;
+                    }
+                    FilterDecision before = mapper.readValue(item.decisionJson(), FilterDecision.class);
+                    FilterDecision after = McqFilterService.decide(before.modeVerdicts(), properties.filter().acceptThreshold(), properties.filter().gatingModes(),
+                            before.filterModel(), before.rationale());
+                    total++;
+                    if (after.accepted()) {
+                        accepted++;
+                    }
+                    if (after.accepted() != before.accepted() || after.aggregateScore() != before.aggregateScore()) {
+                        store.replaceDecision(item.key(), mapper.writeValueAsString(after));
+                        changed++;
+                    }
+                }
+            }
+        }
+        log.info("Recomputed {} decision(s) with threshold {} gating on {}", total, properties.filter().acceptThreshold(), properties.filter().gatingModes());
+        log.info("{} changed; {} of {} now accepted ({}%)", changed, accepted, total, total == 0 ? 0 : Math.round(100.0 * accepted / total));
     }
 
     private String stringArg(ApplicationArguments args, String name, String fallback) {

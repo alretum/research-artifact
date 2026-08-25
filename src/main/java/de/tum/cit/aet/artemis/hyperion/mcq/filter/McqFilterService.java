@@ -105,13 +105,30 @@ public class McqFilterService {
             log.warn("Filter judged {} of {} modes; discarding incomplete verdict", verdicts.size(), FailureMode.values().length);
             return new Result(null, call.withFailureCategory("FILTER_INCOMPLETE_VERDICT"));
         }
-        // Only the gating modes decide acceptance. The rest are judged and stored, because a mode worth
-        // measuring is not always a mode worth rejecting on.
+        return new Result(decide(verdicts, threshold, gatingModes, model, output.rationale()), call);
+    }
+
+    /**
+     * Turn a set of judged severities into a decision.
+     * <p>
+     * The one place the rule lives, so a decision recomputed later from stored verdicts cannot drift from
+     * one made during a run. Only the gating modes can reject: a mode worth measuring is not always a mode
+     * worth rejecting on, and because the aggregate is one minus the <em>worst</em> severity, any gating
+     * mode can reject on its own.
+     *
+     * @param verdicts    severity per failure mode, all of them
+     * @param threshold   minimum aggregate score to accept
+     * @param gatingModes modes allowed to reject; empty or null means all of them
+     * @param model       filter model, recorded on the decision
+     * @param rationale   the judge's rationale, recorded as given
+     * @return the decision
+     */
+    public static FilterDecision decide(Map<FailureMode, ModeVerdict> verdicts, double threshold, Set<FailureMode> gatingModes, String model, String rationale) {
         Set<FailureMode> gating = gatingModes == null || gatingModes.isEmpty() ? verdicts.keySet() : gatingModes;
         double worstSeverity = verdicts.entrySet().stream().filter(entry -> gating.contains(entry.getKey())).mapToDouble(entry -> entry.getValue().severity()).max().orElse(0);
         double meanSeverity = verdicts.values().stream().mapToDouble(ModeVerdict::severity).average().orElse(1);
         double aggregate = 1 - worstSeverity;
-        return new Result(new FilterDecision(aggregate >= threshold, aggregate, meanSeverity, verdicts, model, output.rationale()), call);
+        return new FilterDecision(aggregate >= threshold, aggregate, meanSeverity, verdicts, model, rationale);
     }
 
     private static Map<FailureMode, ModeVerdict> toVerdicts(List<ModeScore> scores) {

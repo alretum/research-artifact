@@ -19,6 +19,7 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.openai.OpenAiChatOptions;
 
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.AnswerOption;
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.FailureMode;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.GroundingComposition;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.GroundingContext;
@@ -134,6 +135,41 @@ class McqFilterServiceTest {
 
         assertThat(result.succeeded()).isFalse();
         assertThat(result.call().outcome()).isEqualTo("error");
+    }
+
+    @Test
+    void aNonGatingModeIsRecordedButCannotReject() {
+        var verdicts = java.util.Map.of(FailureMode.FACTUAL_ERROR, new Mcq.ModeVerdict(0.0, false, "fine"), FailureMode.AMBIGUOUS_CORRECT_ANSWER,
+                new Mcq.ModeVerdict(0.0, false, "fine"), FailureMode.OFF_TOPIC, new Mcq.ModeVerdict(0.0, false, "fine"), FailureMode.ILL_FORMED_DISTRACTORS,
+                new Mcq.ModeVerdict(0.0, false, "fine"), FailureMode.NEAR_DUPLICATE, new Mcq.ModeVerdict(0.8, true, "restates the material"));
+
+        var gated = McqFilterService.decide(verdicts, 0.7, java.util.Set.of(FailureMode.FACTUAL_ERROR, FailureMode.AMBIGUOUS_CORRECT_ANSWER, FailureMode.OFF_TOPIC,
+                FailureMode.ILL_FORMED_DISTRACTORS), "m", "r");
+
+        assertThat(gated.accepted()).isTrue();
+        assertThat(gated.aggregateScore()).isEqualTo(1.0);
+        // Still recorded, so it can be compared against an independent judgement later.
+        assertThat(gated.modeVerdicts().get(FailureMode.NEAR_DUPLICATE).severity()).isEqualTo(0.8);
+    }
+
+    @Test
+    void aGatingModeRejectsOnItsOwnBecauseTheAggregateUsesTheWorstSeverity() {
+        var verdicts = java.util.Map.of(FailureMode.FACTUAL_ERROR, new Mcq.ModeVerdict(0.6, true, "wrong"), FailureMode.AMBIGUOUS_CORRECT_ANSWER,
+                new Mcq.ModeVerdict(0.0, false, "fine"), FailureMode.OFF_TOPIC, new Mcq.ModeVerdict(0.0, false, "fine"), FailureMode.ILL_FORMED_DISTRACTORS,
+                new Mcq.ModeVerdict(0.0, false, "fine"), FailureMode.NEAR_DUPLICATE, new Mcq.ModeVerdict(0.0, false, "fine"));
+
+        var decision = McqFilterService.decide(verdicts, 0.7, java.util.Set.of(FailureMode.FACTUAL_ERROR), "m", "r");
+
+        assertThat(decision.accepted()).isFalse();
+        assertThat(decision.aggregateScore()).isEqualTo(0.4, org.assertj.core.data.Offset.offset(1e-9));
+    }
+
+    @Test
+    void anEmptyGatingSetFallsBackToEveryMode() {
+        var verdicts = java.util.Map.of(FailureMode.FACTUAL_ERROR, new Mcq.ModeVerdict(0.0, false, "fine"), FailureMode.NEAR_DUPLICATE,
+                new Mcq.ModeVerdict(0.9, true, "recall"));
+
+        assertThat(McqFilterService.decide(verdicts, 0.7, java.util.Set.of(), "m", "r").accepted()).isFalse();
     }
 
     /** All five modes gate, which is the behaviour these tests were written against. */

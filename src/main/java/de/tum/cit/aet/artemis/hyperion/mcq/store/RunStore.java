@@ -189,6 +189,19 @@ public class RunStore implements AutoCloseable {
     }
 
     /**
+     * Replace an item's stored decision without touching its state or attempt counts.
+     * <p>
+     * For recomputing decisions from verdicts already judged, which needs no model call. Deliberately not
+     * {@code recordFiltered}, which would count another filter attempt that never happened.
+     *
+     * @param key      the item
+     * @param decision serialised decision
+     */
+    public synchronized void replaceDecision(ItemKey key, String decision) {
+        update(key, "decision_json = ?", List.of(decision));
+    }
+
+    /**
      * Read the manifest a run was registered with.
      *
      * @param runId run to inspect
