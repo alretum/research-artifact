@@ -32,6 +32,7 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter;
 import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter.Condition;
 import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter.Granularity;
+import de.tum.cit.aet.artemis.hyperion.mcq.plan.ModelCatalogue;
 import de.tum.cit.aet.artemis.hyperion.mcq.readiness.Readiness;
 import de.tum.cit.aet.artemis.hyperion.mcq.readiness.ReadinessService;
 import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore;
@@ -75,6 +76,11 @@ public class UiController {
         Readiness setup = readiness.check();
         model.addAttribute("readyToGenerate", setup.ready());
         model.addAttribute("setupBlockers", setup.blockers());
+        model.addAttribute("difficultyDefault", properties.difficulty().stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(", ")));
+        model.addAttribute("thresholdDefault", properties.filter().acceptThreshold());
+        model.addAttribute("generatorDefault", properties.generation().model());
+        model.addAttribute("filterDefault", properties.filter().model());
+        model.addAttribute("modelOptions", usableModels());
         var index = corpus.index();
         int[] attempts = store.attemptTotals();
         model.addAttribute("topics", index.allTopics());
@@ -91,9 +97,11 @@ public class UiController {
 
     @PostMapping("/runs")
     public String startRun(@RequestParam(required = false) List<String> topics, @RequestParam(defaultValue = "1") int itemsPerTopic,
-            @RequestParam(required = false) Integer concurrency, RedirectAttributes flash) {
+            @RequestParam(required = false) Integer concurrency, @RequestParam(required = false) String difficulty, @RequestParam(required = false) Double acceptThreshold,
+            @RequestParam(required = false) String generatorModel, @RequestParam(required = false) String filterModel, RedirectAttributes flash) {
         try {
-            String runId = runs.start(new StartRequest(topics == null ? List.of() : topics, itemsPerTopic, concurrency));
+            String runId = runs.start(new StartRequest(topics == null ? List.of() : topics, itemsPerTopic, concurrency, parseDifficulty(difficulty), acceptThreshold,
+                    generatorModel, filterModel));
             flash.addFlashAttribute("message", "Started run " + runId);
         }
         catch (RuntimeException e) {
@@ -140,6 +148,40 @@ public class UiController {
      * @param model view model
      * @return the export view
      */
+    /**
+     * Parse a difficulty ladder typed as free text, for example {@code "20, 40, 60, 80"}.
+     *
+     * @param value the field value; blank means use the configured ladder
+     * @return the levels, or {@code null} when nothing was entered
+     * @throws IllegalArgumentException when a value is not a number
+     */
+    private static List<Integer> parseDifficulty(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return java.util.Arrays.stream(value.split("[,;\\s]+")).filter(part -> !part.isBlank()).map(Integer::parseInt).toList();
+        }
+        catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Difficulty must be numbers separated by commas, for example 20, 40, 60, 80 — got '" + value + "'");
+        }
+    }
+
+    /**
+     * @return provider model names usable right now, that is those on the backend this application is
+     *         configured against. Models on other declared backends have no client, so offering them would
+     *         only produce a failure at run time.
+     */
+    private List<String> usableModels() {
+        try {
+            ModelCatalogue catalogue = ModelCatalogue.load(Path.of(properties.modelCataloguePath()));
+            return catalogue.models().values().stream().filter(entry -> catalogue.backendFor(entry).isDefault()).map(ModelCatalogue.ModelEntry::model).distinct().sorted().toList();
+        }
+        catch (RuntimeException e) {
+            return List.of();
+        }
+    }
+
     @GetMapping("/export")
     public String exportForm(Model model) {
         List<RunStore.CompletedItem> items = store.runIds().stream().flatMap(runId -> store.completedItems(runId).stream()).toList();

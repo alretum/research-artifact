@@ -189,6 +189,16 @@ public class RunStore implements AutoCloseable {
     }
 
     /**
+     * Read the manifest a run was registered with.
+     *
+     * @param runId run to inspect
+     * @return the stored manifest, or empty when the run is unknown
+     */
+    public synchronized Optional<String> manifestOf(String runId) {
+        return queryString("SELECT manifest FROM run WHERE run_id = ?", runId);
+    }
+
+    /**
      * Count the items a run already holds for one topic, so newly enqueued indices continue rather than
      * colliding.
      *

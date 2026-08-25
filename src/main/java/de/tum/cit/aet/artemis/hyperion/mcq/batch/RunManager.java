@@ -1,6 +1,7 @@
 package de.tum.cit.aet.artemis.hyperion.mcq.batch;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -74,7 +75,37 @@ public class RunManager {
      * @param itemsPerTopic items to add for each selected topic
      * @param concurrency   workers, or {@code null} to use the configured default
      */
-    public record StartRequest(List<String> topicKeys, int itemsPerTopic, Integer concurrency) {
+    /**
+     * What to generate, with anything left {@code null} taken from the configured defaults.
+     * <p>
+     * These are the settings worth varying between runs while experimenting, so they are per-request
+     * rather than requiring a configuration edit and a restart. The models are included because the
+     * generator and filter pairing is what {@code configurationId} records, and a run that quietly used
+     * different models than its id claims would corrupt every per-configuration comparison.
+     *
+     * @param topicKeys        topics to generate for; empty means every grounded topic
+     * @param itemsPerTopic    items to add per topic
+     * @param concurrency      workers claiming items in parallel
+     * @param difficultyLevels difficulty ladder, walked independently by each topic
+     * @param acceptThreshold  minimum aggregate score in [0, 1] for the filter to accept
+     * @param generatorModel   provider model name that writes questions
+     * @param filterModel      provider model name that judges them
+     */
+    public record StartRequest(List<String> topicKeys, int itemsPerTopic, Integer concurrency, List<Integer> difficultyLevels, Double acceptThreshold, String generatorModel,
+            String filterModel) {
+
+        /** Convenience for a request that overrides nothing beyond the topics and count. */
+        public StartRequest(List<String> topicKeys, int itemsPerTopic, Integer concurrency) {
+            this(topicKeys, itemsPerTopic, concurrency, null, null, null, null);
+        }
+    }
+
+    /** The settings a run actually used, after defaults are applied. */
+    private record Effective(List<Integer> difficultyLevels, double acceptThreshold, String generatorModel, String filterModel) {
+
+        String configurationId() {
+            return generatorModel + "|" + filterModel;
+        }
     }
 
     /**
@@ -135,9 +166,10 @@ public class RunManager {
         String runId = UUID.randomUUID().toString().substring(0, 8);
         List<Topic> topics = selectTopics(request.topicKeys());
         String description = describe(topics, request.itemsPerTopic());
+        Effective effective = effective(request);
 
-        BatchRunner runner = runnerFor(runId, request.concurrency());
-        store.registerRun(runId, properties.configurationId(), manifest());
+        BatchRunner runner = runnerFor(runId, request.concurrency(), effective);
+        store.registerRun(runId, effective.configurationId(), manifest(effective));
         int created = runner.enqueueTopics(topics.stream().map(Topic::key).toList(), request.itemsPerTopic());
         log.info("Run {} enqueued {} items: {}", runId, created, description);
 
@@ -153,9 +185,44 @@ public class RunManager {
      */
     public synchronized void resume(String runId) {
         requireIdle();
-        BatchRunner runner = runnerFor(runId, null);
-        store.registerRun(runId, properties.configurationId(), manifest());
+        String stored = store.manifestOf(runId).orElseThrow(() -> new IllegalArgumentException("No run " + runId + " to resume"));
+        // Continue with the settings the run started with, not whatever is configured now. Otherwise the
+        // remaining items would be generated under different conditions than the ones already produced,
+        // mixing two conditions inside one run id, and the manifest comparison in registerRun would fail.
+        Effective effective = fromManifest(stored);
+        BatchRunner runner = runnerFor(runId, null, effective);
+        store.registerRun(runId, effective.configurationId(), stored);
         launch(runId, "resuming outstanding work", runner);
+    }
+
+    /**
+     * Recover a run's settings from the manifest it was registered with.
+     *
+     * @param manifest the stored manifest
+     * @return the settings recorded in it, falling back to the configured defaults for anything unreadable
+     */
+    private Effective fromManifest(String manifest) {
+        Map<String, String> fields = new LinkedHashMap<>();
+        for (String line : manifest.split("\n")) {
+            int equals = line.indexOf('=');
+            if (equals > 0) {
+                fields.put(line.substring(0, equals), line.substring(equals + 1));
+            }
+        }
+        Effective defaults = effective(new StartRequest(List.of(), 1, null));
+        try {
+            List<Integer> difficulty = fields.containsKey("difficulty")
+                    ? java.util.Arrays.stream(fields.get("difficulty").replaceAll("[\\[\\] ]", "").split(",")).filter(part -> !part.isBlank()).map(Integer::parseInt).toList()
+                    : defaults.difficultyLevels();
+            double threshold = fields.containsKey("acceptThreshold") ? Double.parseDouble(fields.get("acceptThreshold")) : defaults.acceptThreshold();
+            String generator = fields.getOrDefault("generator", defaults.generatorModel());
+            String filterModel = fields.getOrDefault("filter", defaults.filterModel());
+            return new Effective(difficulty.isEmpty() ? defaults.difficultyLevels() : difficulty, threshold, generator, filterModel);
+        }
+        catch (RuntimeException e) {
+            log.warn("Could not read settings from the manifest of this run ({}); resuming with the configured defaults instead", e.getMessage());
+            return defaults;
+        }
     }
 
     /**
@@ -243,19 +310,50 @@ public class RunManager {
         return itemsPerTopic + " item(s) each for " + (topics.size() == 1 ? topics.getFirst().key() : topics.size() + " topics");
     }
 
-    private BatchRunner runnerFor(String runId, Integer concurrency) {
+    /**
+     * Apply the configured defaults to anything the request left unset, and validate what it did set.
+     *
+     * @param request the request
+     * @return the settings the run will use
+     * @throws IllegalArgumentException if an override is out of range
+     */
+    private Effective effective(StartRequest request) {
+        List<Integer> difficulty = request.difficultyLevels() == null || request.difficultyLevels().isEmpty() ? properties.difficulty() : request.difficultyLevels();
+        if (difficulty.stream().anyMatch(level -> level < 0 || level > 100)) {
+            throw new IllegalArgumentException("Difficulty levels must be between 0 and 100, got " + difficulty);
+        }
+        double threshold = request.acceptThreshold() == null ? properties.filter().acceptThreshold() : request.acceptThreshold();
+        if (threshold < 0 || threshold > 1) {
+            throw new IllegalArgumentException("Accept threshold must be between 0 and 1, got " + threshold);
+        }
+        String generator = blankToNull(request.generatorModel()) == null ? properties.generation().model() : request.generatorModel();
+        String filterModel = blankToNull(request.filterModel()) == null ? properties.filter().model() : request.filterModel();
+        return new Effective(List.copyOf(difficulty), threshold, generator, filterModel);
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    private BatchRunner runnerFor(String runId, Integer concurrency, Effective effective) {
         var index = corpus.index();
         List<TopicQuery> queries = index.topics().stream().map(topic -> new TopicQuery(topic.key(), topic.query())).toList();
-        BatchRunner.Settings settings = new BatchRunner.Settings(runId, properties.configurationId(), properties.retrieval().topK(), properties.retrieval().maxGroundingTokens(),
-                properties.difficulty(), properties.language(), properties.generation().model(), properties.generation().temperature(), properties.generation().maxAttempts(),
-                properties.filter().model(), properties.filter().temperature(), properties.filter().maxAttempts(), properties.filter().acceptThreshold(),
+        BatchRunner.Settings settings = new BatchRunner.Settings(runId, effective.configurationId(), properties.retrieval().topK(), properties.retrieval().maxGroundingTokens(),
+                effective.difficultyLevels(), properties.language(), effective.generatorModel(), properties.generation().temperature(), properties.generation().maxAttempts(),
+                effective.filterModel(), properties.filter().temperature(), properties.filter().maxAttempts(), effective.acceptThreshold(),
                 properties.batch().maxOutputAttempts(), concurrency == null ? properties.batch().concurrency() : concurrency);
         return new BatchRunner(store, settings, new BatchRunner.Dependencies(index.source(), groundingAssembly, generation, filter, chatClientBuilder.build(), queries));
     }
 
-    private String manifest() {
+    /**
+     * @param effective the settings this run will use
+     * @return a snapshot recording what was actually used, not what was configured, so a resumed run is
+     *         checked against the right thing
+     */
+    private String manifest(Effective effective) {
         var index = corpus.index();
-        return String.join("\n", "generation=" + properties.generation(), "filter=" + properties.filter(), "retrieval=" + properties.retrieval(),
-                "chunking=" + properties.chunking(), "language=" + properties.language(), "difficulty=" + properties.difficulty(), "chunks=" + index.chunkCount());
+        return String.join("\n", "generator=" + effective.generatorModel(), "filter=" + effective.filterModel(), "acceptThreshold=" + effective.acceptThreshold(),
+                "difficulty=" + effective.difficultyLevels(), "retrieval=" + properties.retrieval(), "chunking=" + properties.chunking(),
+                "language=" + properties.language(), "chunks=" + index.chunkCount());
     }
 }

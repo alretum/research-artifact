@@ -37,6 +37,35 @@
                 <label for="concurrency">Workers</label>
                 <input id="concurrency" name="concurrency" type="number" value="1" min="1" max="4" style="width:5rem">
             </div>
+            <div>
+                <label for="difficulty">Difficulty ladder</label>
+                <input id="difficulty" name="difficulty" type="text" th:placeholder="${difficultyDefault}" style="width:9rem">
+                <span class="muted">Comma separated, 0–100. Each topic walks the ladder independently, so
+                    four levels need four items per topic to be covered. Blank uses the configured ladder.</span>
+            </div>
+            <div>
+                <label for="acceptThreshold">Accept threshold</label>
+                <input id="acceptThreshold" name="acceptThreshold" type="number" step="0.05" min="0" max="1"
+                       th:placeholder="${thresholdDefault}" style="width:6rem">
+                <span class="muted">Score is 1 minus the worst failure-mode severity, so any single mode
+                    above 1 − threshold rejects the item.</span>
+            </div>
+            <div th:if="${#lists.size(modelOptions) > 1}">
+                <label for="generatorModel">Generator model</label>
+                <select id="generatorModel" name="generatorModel">
+                    <option value="">Configured default</option>
+                    <option th:each="m : ${modelOptions}" th:value="${m}" th:text="${m}"></option>
+                </select>
+            </div>
+            <div th:if="${#lists.size(modelOptions) > 1}">
+                <label for="filterModel">Filter model</label>
+                <select id="filterModel" name="filterModel">
+                    <option value="">Configured default</option>
+                    <option th:each="m : ${modelOptions}" th:value="${m}" th:text="${m}"></option>
+                </select>
+                <span class="muted">A filter on the same model as the generator partly measures the model
+                    agreeing with itself.</span>
+            </div>
             <button class="primary" type="submit" th:disabled="${activeRunId != null}">Start run</button>
         </form>
         <p class="muted" th:if="${activeRunId != null}">A run is already executing. Stop it before starting another.</p>
