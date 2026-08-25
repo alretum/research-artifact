@@ -27,6 +27,7 @@ import org.springframework.validation.annotation.Validated;
  * @param retrievalProbePath   CSV written by {@code --retrieval-only}, listing what each topic retrieves
  * @param pricingPath          YAML holding model prices, read only when reporting cost
  * @param modelCataloguePath   YAML declaring the backends and chat models a run plan may name
+ * @param benchmarkExportPath  directory the benchmark export is written into
  * @param topicsFile           optional file of explicit topics, one per line
  * @param competencyManifest   optional competency manifest; takes precedence over topicsFile and folder names
  * @param language             ISO 639-1 language code for generated questions
@@ -36,7 +37,7 @@ import org.springframework.validation.annotation.Validated;
 @Validated
 @ConfigurationProperties(prefix = "mcq")
 public record PipelineProperties(@NotBlank String corpusPath, @NotBlank String runLogPath, @NotBlank String itemsMarkdownPath, @NotBlank String extractionReportPath,
-        @NotBlank String topicReportPath, @NotBlank String retrievalProbePath, @NotBlank String pricingPath, @NotBlank String modelCataloguePath, String topicsFile, String competencyManifest, @NotBlank String language,
+        @NotBlank String topicReportPath, @NotBlank String retrievalProbePath, @NotBlank String pricingPath, @NotBlank String modelCataloguePath, @NotBlank String benchmarkExportPath, String topicsFile, String competencyManifest, @NotBlank String language,
         @NotEmpty List<@Min(0) @Max(100) Integer> difficulty, @NotNull @Valid Chunking chunking, @NotNull @Valid Retrieval retrieval, @NotNull @Valid Generation generation,
         @NotNull @Valid Filter filter, @NotNull @Valid Batch batch) {
 

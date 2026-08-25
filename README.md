@@ -364,7 +364,8 @@ java -jar build/libs/mcq-pipeline-0.1.0-SNAPSHOT.jar \
 ```
 
 That writes `quizzes/`, `instructions/` and a `benchmark.yaml` pointing at both, then prints the command to
-run from the benchmark checkout. Fill in an evaluator model first — the config leaves it blank on purpose,
+run from the benchmark checkout. The same thing is available in the web interface under **Export**, which
+shows how many items are available and downloads the result as a zip. Fill in an evaluator model first — the config leaves it blank on purpose,
 because a model that generated or filtered these items cannot independently judge them.
 
 | flag | values | what it changes |

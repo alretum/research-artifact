@@ -12,6 +12,7 @@
     <nav>
         <a th:href="@{/}" th:classappend="${title == 'Dashboard'} ? 'on'">Dashboard</a>
         <a th:href="@{/items}" th:classappend="${title == 'Items'} ? 'on'">Items</a>
+        <a th:href="@{/export}" th:classappend="${title == 'Export'} ? 'on'">Export</a>
         <a th:href="@{/readiness}" th:classappend="${title == 'Setup'} ? 'on'">Setup</a>
     </nav>
 </header>

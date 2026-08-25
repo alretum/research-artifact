@@ -60,6 +60,7 @@ mcq:
   retrieval-probe-path: data/retrieval-probe.csv
   pricing-path: config/pricing.yml
   model-catalogue-path: config/models.yml
+  benchmark-export-path: data/benchmark
   topics-file: ""
   competency-manifest: config/competencies.yml
   language: en

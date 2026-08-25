@@ -18,6 +18,20 @@ import de.tum.cit.aet.artemis.hyperion.mcq.app.PipelineProperties;
 import de.tum.cit.aet.artemis.hyperion.mcq.batch.RunManager;
 import de.tum.cit.aet.artemis.hyperion.mcq.batch.RunManager.StartRequest;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CorpusIndexService;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
+
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+
+import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter;
+import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter.Condition;
+import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter.Granularity;
 import de.tum.cit.aet.artemis.hyperion.mcq.readiness.Readiness;
 import de.tum.cit.aet.artemis.hyperion.mcq.readiness.ReadinessService;
 import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore;
@@ -44,8 +58,11 @@ public class UiController {
 
     private final ReadinessService readiness;
 
-    public UiController(CorpusIndexService corpus, RunManager runs, RunStore store, ItemView itemView, PipelineProperties properties, ReadinessService readiness) {
+    private final BenchmarkExporter exporter;
+
+    public UiController(CorpusIndexService corpus, RunManager runs, RunStore store, ItemView itemView, PipelineProperties properties, ReadinessService readiness, BenchmarkExporter exporter) {
         this.readiness = readiness;
+        this.exporter = exporter;
         this.corpus = corpus;
         this.runs = runs;
         this.store = store;
@@ -117,6 +134,51 @@ public class UiController {
      * @param model view model
      * @return the setup view
      */
+    /**
+     * Show what an export would contain and let the user choose how it is grouped.
+     *
+     * @param model view model
+     * @return the export view
+     */
+    @GetMapping("/export")
+    public String exportForm(Model model) {
+        List<RunStore.CompletedItem> items = store.runIds().stream().flatMap(runId -> store.completedItems(runId).stream()).toList();
+        model.addAttribute("itemCount", items.size());
+        model.addAttribute("acceptedCount", items.stream().filter(item -> item.decisionJson() != null && item.decisionJson().contains("\"accepted\":true")).count());
+        model.addAttribute("configurationCount", items.stream().map(item -> item.key().configurationId()).distinct().count());
+        return "export";
+    }
+
+    /**
+     * Export and stream the result as a zip.
+     * <p>
+     * Synchronous because the export reads persisted records and makes no model calls, so it finishes in
+     * well under a second even for the whole store. The files are also left on disk, so the same export is
+     * available to the command line and to the benchmark without re-running.
+     *
+     * @param granularity what becomes one quiz file
+     * @param condition   which items each file holds
+     * @return a zip of the export directory
+     */
+    @PostMapping("/export")
+    public ResponseEntity<StreamingResponseBody> export(@RequestParam(defaultValue = "configuration-topic") String granularity,
+            @RequestParam(defaultValue = "all") String condition) {
+        Path directory = Path.of(properties.benchmarkExportPath());
+        exporter.export(store, directory, Granularity.parse(granularity), Condition.parse(condition), properties.language());
+
+        StreamingResponseBody body = out -> {
+            try (ZipOutputStream zip = new ZipOutputStream(out); Stream<Path> walk = Files.walk(directory)) {
+                for (Path path : walk.filter(Files::isRegularFile).toList()) {
+                    zip.putNextEntry(new ZipEntry(directory.relativize(path).toString()));
+                    Files.copy(path, zip);
+                    zip.closeEntry();
+                }
+            }
+        };
+        return ResponseEntity.ok().header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"benchmark-export.zip\"")
+                .contentType(MediaType.valueOf("application/zip")).body(body);
+    }
+
     @GetMapping("/readiness")
     public String readiness(Model model) {
         Readiness result = readiness.check();
