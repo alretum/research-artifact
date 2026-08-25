@@ -3,6 +3,12 @@
 <body>
 <th:block th:fragment="body-content">
 
+    <div class="notice error" th:if="${not readyToGenerate}">
+        <strong>Not ready.</strong>
+        <span th:text="${#lists.size(setupBlockers)} + ' prerequisite(s) are missing, so generation will fail.'"></span>
+        <a th:href="@{/readiness}">See what is missing</a>
+    </div>
+
     <h2>Corpus</h2>
     <div class="card grid">
         <div><div class="stat" th:text="${documentCount}">0</div><span>documents</span></div>

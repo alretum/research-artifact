@@ -18,6 +18,8 @@ import de.tum.cit.aet.artemis.hyperion.mcq.app.PipelineProperties;
 import de.tum.cit.aet.artemis.hyperion.mcq.batch.RunManager;
 import de.tum.cit.aet.artemis.hyperion.mcq.batch.RunManager.StartRequest;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CorpusIndexService;
+import de.tum.cit.aet.artemis.hyperion.mcq.readiness.Readiness;
+import de.tum.cit.aet.artemis.hyperion.mcq.readiness.ReadinessService;
 import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore;
 
 /**
@@ -40,7 +42,10 @@ public class UiController {
 
     private final PipelineProperties properties;
 
-    public UiController(CorpusIndexService corpus, RunManager runs, RunStore store, ItemView itemView, PipelineProperties properties) {
+    private final ReadinessService readiness;
+
+    public UiController(CorpusIndexService corpus, RunManager runs, RunStore store, ItemView itemView, PipelineProperties properties, ReadinessService readiness) {
+        this.readiness = readiness;
         this.corpus = corpus;
         this.runs = runs;
         this.store = store;
@@ -50,6 +55,9 @@ public class UiController {
 
     @GetMapping("/")
     public String dashboard(Model model) {
+        Readiness setup = readiness.check();
+        model.addAttribute("readyToGenerate", setup.ready());
+        model.addAttribute("setupBlockers", setup.blockers());
         var index = corpus.index();
         int[] attempts = store.attemptTotals();
         model.addAttribute("topics", index.allTopics());
@@ -101,6 +109,21 @@ public class UiController {
     @ResponseBody
     public RunManager.Progress progress(@PathVariable String runId) {
         return runs.progress(runId);
+    }
+
+    /**
+     * Show whether the prerequisites for a run are in place, and what to do about any that are not.
+     *
+     * @param model view model
+     * @return the setup view
+     */
+    @GetMapping("/readiness")
+    public String readiness(Model model) {
+        Readiness result = readiness.check();
+        model.addAttribute("checks", result.checks());
+        model.addAttribute("blockers", result.blockers());
+        model.addAttribute("ready", result.ready());
+        return "readiness";
     }
 
     @GetMapping("/items")

@@ -42,3 +42,14 @@ form.inline { display:flex; gap:.75rem; align-items:flex-end; flex-wrap:wrap; }
 .notice.error { border-color:var(--bad); }
 pre { white-space:pre-wrap; font-size:.82rem; color:var(--muted); margin:.3rem 0 0; }
 .sev { display:inline-block; width:44px; text-align:right; font-variant-numeric:tabular-nums; }
+
+/* Setup checklist */
+table.checks { width: 100%; border-collapse: collapse; }
+table.checks td { padding: 0.5rem 0.6rem; border-top: 1px solid #e5e7eb; vertical-align: top; }
+table.checks tr:first-child td { border-top: none; }
+table.checks td.mark { width: 3.2rem; font-weight: 600; font-size: 0.78rem; letter-spacing: 0.04em; }
+table.checks tr.ok td.mark { color: #15803d; }
+table.checks tr.warn td.mark { color: #b45309; }
+table.checks tr.blocked td.mark { color: #b91c1c; }
+table.checks td.name { width: 16rem; font-weight: 600; }
+table.checks .fix { margin-top: 0.2rem; }

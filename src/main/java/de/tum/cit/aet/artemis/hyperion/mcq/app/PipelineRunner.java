@@ -23,6 +23,7 @@ import de.tum.cit.aet.artemis.hyperion.mcq.cost.CostReporter;
 import de.tum.cit.aet.artemis.hyperion.mcq.plan.ModelCatalogue;
 import de.tum.cit.aet.artemis.hyperion.mcq.plan.ModelRegistry;
 import de.tum.cit.aet.artemis.hyperion.mcq.plan.RunPlan;
+import de.tum.cit.aet.artemis.hyperion.mcq.readiness.ReadinessService;
 import de.tum.cit.aet.artemis.hyperion.mcq.batch.BatchRunner.TopicQuery;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.CallRecord;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.Chunk;
@@ -92,8 +93,10 @@ public class PipelineRunner implements ApplicationRunner {
 
     private final BenchmarkExporter benchmark;
 
+    private final ReadinessService readiness;
+
     public PipelineRunner(PipelineProperties properties, EmbeddingModel embeddingModel, ChatClient.Builder chatClientBuilder, GroundingAssemblyService groundingAssembly,
-            McqGenerationService generation, McqFilterService filter, RunLogWriter runLog, ExtractionReportWriter reportWriter, CompositionReporter compositionReporter, RunExporter exporter, ThresholdSweep sweep, FailureReporter failures, CostReporter cost, BenchmarkExporter benchmark) {
+            McqGenerationService generation, McqFilterService filter, RunLogWriter runLog, ExtractionReportWriter reportWriter, CompositionReporter compositionReporter, RunExporter exporter, ThresholdSweep sweep, FailureReporter failures, CostReporter cost, BenchmarkExporter benchmark, ReadinessService readiness) {
         this.properties = properties;
         this.embeddingModel = embeddingModel;
         this.chatClientBuilder = chatClientBuilder;
@@ -108,6 +111,7 @@ public class PipelineRunner implements ApplicationRunner {
         this.failures = failures;
         this.cost = cost;
         this.benchmark = benchmark;
+        this.readiness = readiness;
     }
 
     private ApplicationArguments arguments;
@@ -116,7 +120,7 @@ public class PipelineRunner implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         this.arguments = args;
         if (!args.containsOption("count") && !args.containsOption("resume") && !args.containsOption("report") && !args.containsOption("sweep")
-                && !args.containsOption("cost") && !args.containsOption("plan") && !args.containsOption("run-plan") && !args.containsOption("export-benchmark") && !args.containsOption("retrieval-only")) {
+                && !args.containsOption("cost") && !args.containsOption("plan") && !args.containsOption("run-plan") && !args.containsOption("export-benchmark") && !args.containsOption("doctor") && !args.containsOption("retrieval-only")) {
             log.info("No command argument given; the web interface is available at http://localhost:8080");
             return;
         }
@@ -140,6 +144,10 @@ public class PipelineRunner implements ApplicationRunner {
         }
         if (args.containsOption("run-plan")) {
             runPlan(Path.of(args.getOptionValues("run-plan").getFirst()));
+            return;
+        }
+        if (args.containsOption("doctor")) {
+            readiness.report();
             return;
         }
         if (args.containsOption("export-benchmark")) {

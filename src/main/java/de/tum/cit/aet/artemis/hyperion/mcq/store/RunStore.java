@@ -1,5 +1,6 @@
 package de.tum.cit.aet.artemis.hyperion.mcq.store;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -34,16 +35,22 @@ public class RunStore implements AutoCloseable {
     /**
      * Open or create the store at the given path.
      *
-     * @param database SQLite file; parent directories must already exist
+     * @param database SQLite file; its parent directories are created when absent
      * @throws IllegalStateException if the database cannot be opened or migrated
      */
     public RunStore(Path database) {
         try {
+            // SQLite will not create the directory itself, and this bean is built during startup, so a
+            // fresh clone without data/ used to fail the whole context with SQLITE_CANTOPEN.
+            Path parent = database.toAbsolutePath().getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
             this.connection = DriverManager.getConnection("jdbc:sqlite:" + database);
             this.connection.setAutoCommit(true);
             migrate();
         }
-        catch (SQLException e) {
+        catch (SQLException | java.io.IOException e) {
             throw new IllegalStateException("Failed to open run store at " + database, e);
         }
     }

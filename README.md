@@ -15,8 +15,8 @@ OpenAI-compatible model endpoint. `BUILD.md` is the build plan, `PLAN.md` the re
 |---|---|
 | **JDK 25** | Non-negotiable — the code uses Java 25 language features and `build.gradle` pins `languageVersion = 25`. |
 | **Gradle** | None needed; the wrapper (`./gradlew`, Gradle 9.6.1) fetches its own. |
-| **Logos access** | Chat (generation + filtering) runs on TUM's Logos GPUs by default. Needs an API key and TUM network access — Logos is not reachable from the public internet. |
-| **Ollama** | Embeddings only, locally on CPU. `nomic-embed-text` is ~137M parameters, so CPU is fine. |
+| **Local model** | Chat (generation + filtering) runs on TUM's Logos GPUs — chair-hosted hardware, which the thesis calls the *local* model. Needs an API key and TUM network access — Logos is not reachable from the public internet. |
+| **Embedding model** | Ollama on CPU, embeddings only. `nomic-embed-text` is ~137M parameters, so CPU is fine. |
 
 Gradle resolves the JDK 25 *toolchain* independently of the JDK it runs on, but there is no
 auto-provisioning configured, so a JDK 25 must already be installed and discoverable. Verify with:
@@ -25,7 +25,7 @@ auto-provisioning configured, so a JDK 25 must already be installed and discover
 ./gradlew -q javaToolchains        # must list a Language Version: 25 entry
 ```
 
-### The default split: remote chat, local embedding
+### The default split: chat on Logos, embeddings on this machine
 
 Generation and filtering are the expensive calls and run on Logos GPUs. Embedding is cheap and runs
 locally, which also keeps the corpus off a remote service. Spring AI resolves `base-url` and `api-key`
@@ -33,8 +33,8 @@ per capability, so one `spring.ai.openai` tree points at two providers:
 
 | Capability | Where | Default |
 |---|---|---|
-| chat — generation, filtering | Logos | `${LOGOS_BASE_URL}`, model `${LOGOS_MODEL}` |
-| embedding | local Ollama | `http://localhost:11434/v1`, `nomic-embed-text` |
+| chat — generation, filtering (*local model*) | Logos | `${LOGOS_BASE_URL}`, model `${LOGOS_MODEL}` |
+| embedding (*embedding model*) | Ollama on this machine | `http://localhost:11434/v1`, `nomic-embed-text` |
 
 So the only thing to install locally is Ollama and one embedding model.
 
@@ -77,16 +77,14 @@ or quality claim, so that profile is for development only; see `THESIS_NOTES.md`
 ## 2. Build
 
 ```bash
-mkdir -p data                      # required: see below
 ./gradlew build                    # compiles, runs the test suite, produces the jar
 ```
 
 This produces `build/libs/mcq-pipeline-0.1.0-SNAPSHOT.jar`. Section 5 lists what you can pass it.
 
-**`data/` must exist before first start.** It is gitignored, so a fresh clone does not have it, and
-`RunStore` does not create it — the application fails during context initialisation with
-`[SQLITE_CANTOPEN] Unable to open the database file`, which does not obviously mean "make a directory".
-One `mkdir` avoids it.
+`data/` is created on first use, so nothing to prepare. If something else is missing — no corpus, an
+unset key, an embedding server that is not running — run `--doctor`, which checks every prerequisite and
+prints what to do about each one. The same checklist is in the web interface under **Setup**.
 
 The first build downloads the full Spring Boot 4.1 / Spring AI 2.0 dependency tree and takes several
 minutes; later builds are seconds.
@@ -294,7 +292,7 @@ first if a run stalls with no output.
 `config/application-logos.yml` predates this and now duplicates the defaults. It is harmless but
 redundant; the defaults in `application.yml` are the authority.
 
-### 4.2 Fully local (`ollama` profile)
+### 4.2 Chat on Ollama too (`ollama` profile) — development only
 
 Chat and embedding both on Ollama. No credentials, no network.
 
@@ -306,7 +304,7 @@ java -jar build/libs/mcq-pipeline-0.1.0-SNAPSHOT.jar --spring.profiles.active=ol
 
 Development and offline work only — see `THESIS_NOTES.md` N6.
 
-### 4.3 Anything else
+### 4.3 A cloud model (Azure, OpenAI)
 
 Any OpenAI-compatible endpoint works. Override the chat side and leave embedding alone:
 
@@ -341,6 +339,7 @@ With no command argument the application starts the web interface on port 8080 a
 | `--plan=FILE` | Validate a run plan and print what it would run. Generates nothing. |
 | `--run-plan=FILE` | Run every configuration in a plan, one after another. |
 | `--export-benchmark=DIR` | Write the items as input for the external quality benchmark. No model calls. |
+| `--doctor` | Check every prerequisite and say what is missing. No model calls. |
 
 ```bash
 java -jar build/libs/mcq-pipeline-0.1.0-SNAPSHOT.jar --count=10
