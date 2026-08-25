@@ -16,6 +16,9 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
 import de.tum.cit.aet.artemis.hyperion.mcq.batch.BatchRunner;
+import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter;
+import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter.Condition;
+import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter.Granularity;
 import de.tum.cit.aet.artemis.hyperion.mcq.cost.CostReporter;
 import de.tum.cit.aet.artemis.hyperion.mcq.plan.ModelCatalogue;
 import de.tum.cit.aet.artemis.hyperion.mcq.plan.ModelRegistry;
@@ -87,8 +90,10 @@ public class PipelineRunner implements ApplicationRunner {
 
     private final CostReporter cost;
 
+    private final BenchmarkExporter benchmark;
+
     public PipelineRunner(PipelineProperties properties, EmbeddingModel embeddingModel, ChatClient.Builder chatClientBuilder, GroundingAssemblyService groundingAssembly,
-            McqGenerationService generation, McqFilterService filter, RunLogWriter runLog, ExtractionReportWriter reportWriter, CompositionReporter compositionReporter, RunExporter exporter, ThresholdSweep sweep, FailureReporter failures, CostReporter cost) {
+            McqGenerationService generation, McqFilterService filter, RunLogWriter runLog, ExtractionReportWriter reportWriter, CompositionReporter compositionReporter, RunExporter exporter, ThresholdSweep sweep, FailureReporter failures, CostReporter cost, BenchmarkExporter benchmark) {
         this.properties = properties;
         this.embeddingModel = embeddingModel;
         this.chatClientBuilder = chatClientBuilder;
@@ -102,6 +107,7 @@ public class PipelineRunner implements ApplicationRunner {
         this.sweep = sweep;
         this.failures = failures;
         this.cost = cost;
+        this.benchmark = benchmark;
     }
 
     private ApplicationArguments arguments;
@@ -110,7 +116,7 @@ public class PipelineRunner implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         this.arguments = args;
         if (!args.containsOption("count") && !args.containsOption("resume") && !args.containsOption("report") && !args.containsOption("sweep")
-                && !args.containsOption("cost") && !args.containsOption("plan") && !args.containsOption("run-plan") && !args.containsOption("retrieval-only")) {
+                && !args.containsOption("cost") && !args.containsOption("plan") && !args.containsOption("run-plan") && !args.containsOption("export-benchmark") && !args.containsOption("retrieval-only")) {
             log.info("No command argument given; the web interface is available at http://localhost:8080");
             return;
         }
@@ -134,6 +140,14 @@ public class PipelineRunner implements ApplicationRunner {
         }
         if (args.containsOption("run-plan")) {
             runPlan(Path.of(args.getOptionValues("run-plan").getFirst()));
+            return;
+        }
+        if (args.containsOption("export-benchmark")) {
+            Granularity granularity = Granularity.parse(stringArg(args, "export-granularity", "configuration-topic"));
+            Condition condition = Condition.parse(stringArg(args, "export-condition", "all"));
+            try (RunStore store = new RunStore(Path.of(properties.batch().databasePath()))) {
+                benchmark.export(store, Path.of(args.getOptionValues("export-benchmark").getFirst()), granularity, condition);
+            }
             return;
         }
 
@@ -370,6 +384,10 @@ public class PipelineRunner implements ApplicationRunner {
             log.warn("Every configuration has one model both writing and judging, so accept rate includes self-agreement. "
                     + "Add a configuration with a different filter model to measure independently.");
         }
+    }
+
+    private String stringArg(ApplicationArguments args, String name, String fallback) {
+        return args.containsOption(name) ? args.getOptionValues(name).getFirst() : fallback;
     }
 
     private List<Topic> resolveTopics(ApplicationArguments args, List<Topic> fromCorpus) {
