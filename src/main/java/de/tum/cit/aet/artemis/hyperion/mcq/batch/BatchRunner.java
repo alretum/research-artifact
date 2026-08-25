@@ -60,8 +60,21 @@ public class BatchRunner {
      *
      * @param topicQueries retrieval query per topic key, in run order
      */
+    /**
+     * @param generatorClient client issuing generation calls
+     * @param filterClient    client issuing filter calls; the same instance as the generator's when both
+     *                        models are served by one backend, a different one when they are not
+     */
     public record Dependencies(SnippetSource snippetSource, GroundingAssemblyService groundingAssembly, McqGenerationService generation, McqFilterService filter,
-            ChatClient chatClient, List<TopicQuery> topicQueries) {
+            ChatClient generatorClient, ChatClient filterClient, List<TopicQuery> topicQueries) {
+
+        /**
+         * Convenience for the common case of one backend serving both stages.
+         */
+        public Dependencies(SnippetSource snippetSource, GroundingAssemblyService groundingAssembly, McqGenerationService generation, McqFilterService filter, ChatClient client,
+                List<TopicQuery> topicQueries) {
+            this(snippetSource, groundingAssembly, generation, filter, client, client, topicQueries);
+        }
     }
 
     /**
@@ -228,7 +241,7 @@ public class BatchRunner {
     private void generate(Claim claim) {
         GroundingContext grounding = ground(claim.key().topicKey());
         var result = dependencies.generation().generate(grounding, claim.difficulty(), settings.language(), settings.generationModel(), settings.generationTemperature(),
-                settings.generationCallAttempts(), dependencies.chatClient());
+                settings.generationCallAttempts(), dependencies.generatorClient());
 
         List<CallRecord> calls = append(claim.callsJson(), result.call());
         if (!result.succeeded()) {
@@ -253,7 +266,7 @@ public class BatchRunner {
         GroundingContext grounding = ground(provenance.topic());
 
         var result = dependencies.filter().evaluate(item, grounding, settings.acceptThreshold(), settings.filterModel(), settings.filterTemperature(),
-                settings.filterCallAttempts(), dependencies.chatClient());
+                settings.filterCallAttempts(), dependencies.filterClient());
 
         List<CallRecord> calls = append(claim.callsJson(), result.call());
         if (!result.succeeded()) {

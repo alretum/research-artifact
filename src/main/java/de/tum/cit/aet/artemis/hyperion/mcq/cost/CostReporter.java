@@ -1,9 +1,5 @@
 package de.tum.cit.aet.artemis.hyperion.mcq.cost;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -19,7 +15,9 @@ import org.springframework.stereotype.Service;
 import tools.jackson.databind.json.JsonMapper;
 
 import de.tum.cit.aet.artemis.hyperion.mcq.cost.CostCalculator.Cost;
-import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.RunRecord;
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.CallRecord;
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.FilterDecision;
+import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore;
 import de.tum.cit.aet.artemis.hyperion.mcq.llm.StructuredOutputs;
 
 /**
@@ -39,11 +37,12 @@ public class CostReporter {
 
     /**
      * @param configurationId generator and filter pairing
-     * @param items           items recorded for this configuration
+     * @param items           completed items recorded for this configuration
      * @param accepted        items the filter accepted
-     * @param cost            cost of every call these items consumed
+     * @param failed          items that exhausted their attempts; they produced nothing but cost money
+     * @param cost            cost of every call these items consumed, successes and failures alike
      */
-    public record Row(String configurationId, int items, int accepted, Cost cost) {
+    public record Row(String configurationId, int items, int accepted, int failed, Cost cost) {
 
         public double perItemLow() {
             return items == 0 ? 0 : cost.lowEur() / items;
@@ -63,39 +62,69 @@ public class CostReporter {
     }
 
     /**
-     * Group a run log by configuration and price each group.
+     * Group every run in the store by configuration and price each group.
+     * <p>
+     * Reads the store rather than the exported run log for two reasons: the log is replaced on each
+     * export, so it only ever holds the most recent run, and it omits items that failed permanently --
+     * which consumed calls and therefore money without producing a question.
      *
-     * @param runLog  newline-delimited JSON run log
+     * @param store   the run store
      * @param pricing pricing file
-     * @return one row per configuration, in the order first seen
+     * @return one row per configuration, ordered by configuration id
      */
-    public List<Row> tabulate(Path runLog, Path pricing) {
+    public List<Row> tabulate(RunStore store, Path pricing) {
         CostCalculator calculator = new CostCalculator(PricingCatalogue.load(pricing));
-        Map<String, List<RunRecord>> byConfiguration = new LinkedHashMap<>();
-        for (RunRecord record : read(runLog)) {
-            byConfiguration.computeIfAbsent(record.configurationId(), key -> new ArrayList<>()).add(record);
+        Map<String, List<CallRecord>> callsByConfiguration = new LinkedHashMap<>();
+        Map<String, int[]> countsByConfiguration = new LinkedHashMap<>();
+
+        for (String runId : store.runIds()) {
+            for (RunStore.CompletedItem item : store.completedItems(runId)) {
+                String configurationId = item.key().configurationId();
+                callsByConfiguration.computeIfAbsent(configurationId, key -> new ArrayList<>()).addAll(calls(item.callsJson()));
+                int[] counts = countsByConfiguration.computeIfAbsent(configurationId, key -> new int[3]);
+                counts[0]++;
+                if (accepted(item.decisionJson())) {
+                    counts[1]++;
+                }
+            }
+            for (RunStore.FailedItem item : store.failedItems(runId)) {
+                String configurationId = item.key().configurationId();
+                callsByConfiguration.computeIfAbsent(configurationId, key -> new ArrayList<>()).addAll(calls(item.callsJson()));
+                countsByConfiguration.computeIfAbsent(configurationId, key -> new int[3])[2]++;
+            }
         }
 
-        List<Row> rows = new ArrayList<>();
-        byConfiguration.forEach((configurationId, records) -> {
-            List<de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.CallRecord> calls = records.stream().filter(record -> record.calls() != null).flatMap(record -> record.calls().stream())
-                    .toList();
-            int accepted = (int) records.stream().filter(record -> record.filterDecision() != null && record.filterDecision().accepted()).count();
-            rows.add(new Row(configurationId, records.size(), accepted, calculator.costOf(calls)));
+        return countsByConfiguration.entrySet().stream().sorted(Map.Entry.comparingByKey()).map(entry -> {
+            int[] counts = entry.getValue();
+            return new Row(entry.getKey(), counts[0], counts[1], counts[2], calculator.costOf(callsByConfiguration.getOrDefault(entry.getKey(), List.of())));
+        }).toList();
+    }
+
+    private List<CallRecord> calls(String callsJson) {
+        if (callsJson == null || callsJson.isBlank()) {
+            return List.of();
+        }
+        return mapper.readValue(callsJson, new tools.jackson.core.type.TypeReference<List<CallRecord>>() {
         });
-        return List.copyOf(rows);
+    }
+
+    private boolean accepted(String decisionJson) {
+        if (decisionJson == null || decisionJson.isBlank()) {
+            return false;
+        }
+        return mapper.readValue(decisionJson, FilterDecision.class).accepted();
     }
 
     /**
      * Tabulate and log the result.
      *
-     * @param runLog  newline-delimited JSON run log
+     * @param store   the run store
      * @param pricing pricing file
      */
-    public void report(Path runLog, Path pricing) {
-        List<Row> rows = tabulate(runLog, pricing);
+    public void report(RunStore store, Path pricing) {
+        List<Row> rows = tabulate(store, pricing);
         if (rows.isEmpty()) {
-            log.warn("Run log {} holds no items to price", runLog);
+            log.warn("The run store holds no items to price");
             return;
         }
         log.info("Cost per configuration:\n{}", render(rows));
@@ -116,10 +145,10 @@ public class CostReporter {
      * @return a Markdown table
      */
     public String render(List<Row> rows) {
-        StringBuilder out = new StringBuilder("| configuration | items | accepted | accept rate | total EUR | EUR/item | EUR/accepted item |\n");
-        out.append("|---|---|---|---|---|---|---|\n");
+        StringBuilder out = new StringBuilder("| configuration | items | accepted | failed | accept rate | total EUR | EUR/item | EUR/accepted item |\n");
+        out.append("|---|---|---|---|---|---|---|---|\n");
         for (Row row : rows) {
-            out.append("| ").append(row.configurationId()).append(" | ").append(row.items()).append(" | ").append(row.accepted()).append(" | ")
+            out.append("| ").append(row.configurationId()).append(" | ").append(row.items()).append(" | ").append(row.accepted()).append(" | ").append(row.failed()).append(" | ")
                     .append(row.items() == 0 ? "-" : String.format("%.0f%%", 100d * row.accepted() / row.items())).append(" | ").append(band(row.cost().lowEur(), row.cost().highEur()))
                     .append(" | ").append(band(row.perItemLow(), row.perItemHigh())).append(" | ").append(band(row.perAcceptedLow(), row.perAcceptedHigh())).append(" |\n");
         }
@@ -133,21 +162,4 @@ public class CostReporter {
         return low == high ? String.format("%.4f", low) : String.format("%.4f-%.4f", low, high);
     }
 
-    private List<RunRecord> read(Path runLog) {
-        if (!Files.isRegularFile(runLog)) {
-            throw new UncheckedIOException(new IOException("No run log at " + runLog));
-        }
-        List<RunRecord> records = new ArrayList<>();
-        try {
-            for (String line : Files.readAllLines(runLog, StandardCharsets.UTF_8)) {
-                if (!line.isBlank()) {
-                    records.add(mapper.readValue(line, RunRecord.class));
-                }
-            }
-        }
-        catch (IOException e) {
-            throw new UncheckedIOException("Failed to read run log " + runLog, e);
-        }
-        return records;
-    }
 }

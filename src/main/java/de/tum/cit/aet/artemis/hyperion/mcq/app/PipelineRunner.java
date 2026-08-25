@@ -110,7 +110,7 @@ public class PipelineRunner implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         this.arguments = args;
         if (!args.containsOption("count") && !args.containsOption("resume") && !args.containsOption("report") && !args.containsOption("sweep")
-                && !args.containsOption("cost") && !args.containsOption("plan") && !args.containsOption("retrieval-only")) {
+                && !args.containsOption("cost") && !args.containsOption("plan") && !args.containsOption("run-plan") && !args.containsOption("retrieval-only")) {
             log.info("No command argument given; the web interface is available at http://localhost:8080");
             return;
         }
@@ -123,11 +123,17 @@ public class PipelineRunner implements ApplicationRunner {
             return;
         }
         if (args.containsOption("cost")) {
-            cost.report(Path.of(properties.runLogPath()), Path.of(properties.pricingPath()));
+            try (RunStore store = new RunStore(Path.of(properties.batch().databasePath()))) {
+                cost.report(store, Path.of(properties.pricingPath()));
+            }
             return;
         }
         if (args.containsOption("plan")) {
             describePlan(Path.of(args.getOptionValues("plan").getFirst()));
+            return;
+        }
+        if (args.containsOption("run-plan")) {
+            runPlan(Path.of(args.getOptionValues("run-plan").getFirst()));
             return;
         }
 
@@ -179,6 +185,76 @@ public class PipelineRunner implements ApplicationRunner {
         return String.join("\n", "generation=" + properties.generation(), "filter=" + properties.filter(), "retrieval=" + properties.retrieval(),
                 "chunking=" + properties.chunking(), "language=" + properties.language(), "difficulty=" + properties.difficulty(), "chunks=" + indexed.source().size(),
                 "topics=" + indexed.topics().stream().map(Topic::key).toList());
+    }
+
+    /**
+     * Settings for one configuration of a plan, taking the models from the plan rather than the
+     * properties, and the configuration id from the plan rather than deriving it from model names.
+     *
+     * @param runId         run this configuration writes into
+     * @param configuration the plan entry
+     * @param generator     resolved generator model name
+     * @param filterModel   resolved filter model name
+     * @return settings for a batch
+     */
+    private BatchRunner.Settings planSettings(String runId, RunPlan.RunConfiguration configuration, String generator, String filterModel) {
+        return new BatchRunner.Settings(runId, configuration.id(), properties.retrieval().topK(), properties.retrieval().maxGroundingTokens(), properties.difficulty(),
+                properties.language(), generator, properties.generation().temperature(), properties.generation().maxAttempts(), filterModel, properties.filter().temperature(),
+                properties.filter().maxAttempts(), properties.filter().acceptThreshold(), properties.batch().maxOutputAttempts(),
+                intArgOrDefault("concurrency", properties.batch().concurrency()));
+    }
+
+    /**
+     * Run every configuration in a plan, one after another.
+     * <p>
+     * Sequential on purpose: the model server is the scarce resource, and running cells concurrently would
+     * inflate per-call latency so that no cell's timings could be reported (THESIS_NOTES N5). Each
+     * configuration gets its own run id, because the store records one configuration per run, and its
+     * items are keyed by the plan's configuration id so the cells never collide.
+     *
+     * @param planFile the plan to run
+     */
+    private void runPlan(Path planFile) {
+        RunPlan plan = RunPlan.load(planFile);
+        ModelCatalogue catalogue = ModelCatalogue.load(Path.of(properties.modelCataloguePath()));
+        plan.validateAgainst(catalogue);
+        ModelRegistry registry = new ModelRegistry(catalogue, chatClientBuilder.build());
+        registry.validate(plan);
+
+        Indexed indexed = buildIndex();
+        List<Topic> topics = plan.topics().isEmpty() ? indexed.topics().stream().filter(Topic::grounded).toList()
+                : indexed.topics().stream().filter(topic -> plan.topics().contains(topic.key())).toList();
+        if (topics.isEmpty()) {
+            log.error("Plan '{}' matched no grounded topics; nothing to generate", plan.plan());
+            return;
+        }
+
+        int perConfiguration = plan.itemsPerTopic() * topics.size();
+        log.info("Plan '{}': {} configuration(s) x {} topic(s) x {} items = {} items", plan.plan(), plan.configurations().size(), topics.size(), plan.itemsPerTopic(),
+                plan.configurations().size() * perConfiguration);
+
+        List<TopicQuery> queries = topics.stream().map(topic -> new TopicQuery(topic.key(), topic.query())).toList();
+        try (RunStore store = new RunStore(Path.of(properties.batch().databasePath()))) {
+            for (RunPlan.RunConfiguration configuration : plan.configurations()) {
+                var generator = registry.resolve(configuration.generator());
+                var filterModel = registry.resolve(configuration.filter());
+                String runId = plan.plan() + "-" + configuration.id();
+
+                log.info("--- configuration {} ({} items) ---", configuration.id(), perConfiguration);
+                store.registerRun(runId, configuration.id(), manifest(indexed));
+                store.releaseStaleClaims(runId);
+
+                BatchRunner batch = new BatchRunner(store, planSettings(runId, configuration, generator.model(), filterModel.model()),
+                        new BatchRunner.Dependencies(indexed.source(), groundingAssembly, generation, filter, generator.client(), filterModel.client(), queries));
+                int created = batch.enqueue(perConfiguration);
+                long start = System.nanoTime();
+                int processed = batch.run();
+                log.info("configuration {}: {} enqueued ({} new), {} units processed in {} s, states {}", configuration.id(), perConfiguration, created, processed,
+                        (System.nanoTime() - start) / 1_000_000_000, store.stateCounts(runId));
+                failures.report(store, runId);
+            }
+        }
+        log.info("Plan '{}' complete. Report cost with --cost and quality with --report.", plan.plan());
     }
 
     private BatchRunner.Settings batchSettings(String runId) {
