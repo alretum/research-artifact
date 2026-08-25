@@ -59,6 +59,7 @@ mcq:
   topic-report-path: data/topics.csv
   retrieval-probe-path: data/retrieval-probe.csv
   pricing-path: config/pricing.yml
+  model-catalogue-path: config/models.yml
   topics-file: ""
   competency-manifest: config/competencies.yml
   language: en

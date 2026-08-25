@@ -17,6 +17,9 @@ import org.springframework.stereotype.Component;
 
 import de.tum.cit.aet.artemis.hyperion.mcq.batch.BatchRunner;
 import de.tum.cit.aet.artemis.hyperion.mcq.cost.CostReporter;
+import de.tum.cit.aet.artemis.hyperion.mcq.plan.ModelCatalogue;
+import de.tum.cit.aet.artemis.hyperion.mcq.plan.ModelRegistry;
+import de.tum.cit.aet.artemis.hyperion.mcq.plan.RunPlan;
 import de.tum.cit.aet.artemis.hyperion.mcq.batch.BatchRunner.TopicQuery;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.CallRecord;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.Chunk;
@@ -107,7 +110,7 @@ public class PipelineRunner implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         this.arguments = args;
         if (!args.containsOption("count") && !args.containsOption("resume") && !args.containsOption("report") && !args.containsOption("sweep")
-                && !args.containsOption("cost") && !args.containsOption("retrieval-only")) {
+                && !args.containsOption("cost") && !args.containsOption("plan") && !args.containsOption("retrieval-only")) {
             log.info("No command argument given; the web interface is available at http://localhost:8080");
             return;
         }
@@ -121,6 +124,10 @@ public class PipelineRunner implements ApplicationRunner {
         }
         if (args.containsOption("cost")) {
             cost.report(Path.of(properties.runLogPath()), Path.of(properties.pricingPath()));
+            return;
+        }
+        if (args.containsOption("plan")) {
+            describePlan(Path.of(args.getOptionValues("plan").getFirst()));
             return;
         }
 
@@ -259,6 +266,34 @@ public class PipelineRunner implements ApplicationRunner {
 
     private static int sum(CorpusLoader.LoadResult loaded, java.util.function.ToIntFunction<CorpusLoader.DocumentReport> field) {
         return loaded.reports().stream().mapToInt(field).sum();
+    }
+
+    /**
+     * Validate a run plan and log what it would run, without generating anything.
+     * <p>
+     * Checks every model the plan names is declared and reachable, so a mistyped key or an unset key
+     * variable fails here rather than part-way through a paid run.
+     *
+     * @param planFile the plan to describe
+     */
+    private void describePlan(Path planFile) {
+        RunPlan plan = RunPlan.load(planFile);
+        ModelCatalogue catalogue = ModelCatalogue.load(Path.of(properties.modelCataloguePath()));
+        plan.validateAgainst(catalogue);
+        ModelRegistry registry = new ModelRegistry(catalogue, chatClientBuilder.build());
+        registry.validate(plan);
+
+        String scope = plan.topics().isEmpty() ? "every grounded topic" : plan.topics().size() + " named topic(s)";
+        log.info("Plan '{}': {} configuration(s), {} items per topic, over {}", plan.plan(), plan.configurations().size(), plan.itemsPerTopic(), scope);
+        for (RunPlan.RunConfiguration configuration : plan.configurations()) {
+            log.info("  {} | generator {} -> {} | filter {} -> {}{}", configuration.id(), configuration.generator(), registry.modelNameOf(configuration.generator()).orElseThrow(),
+                    configuration.filter(), registry.modelNameOf(configuration.filter()).orElseThrow(), configuration.isSelfJudging() ? "  (self-judging)" : "");
+        }
+        long selfJudging = plan.configurations().stream().filter(RunPlan.RunConfiguration::isSelfJudging).count();
+        if (selfJudging == plan.configurations().size()) {
+            log.warn("Every configuration has one model both writing and judging, so accept rate includes self-agreement. "
+                    + "Add a configuration with a different filter model to measure independently.");
+        }
     }
 
     private List<Topic> resolveTopics(ApplicationArguments args, List<Topic> fromCorpus) {
