@@ -30,6 +30,6 @@ out/
 *.env
 .env
 
-# Run output is gitignored (see data/), but artefacts cited as evidence in THESIS_NOTES.md
-# are kept under evidence/ deliberately.
-!evidence/
+# Run artefacts cited in the thesis notes. Kept out of the repository because a run record
+# carries the full prompt text, which embeds verbatim lecture material (see corpus/ above).
+evidence/
