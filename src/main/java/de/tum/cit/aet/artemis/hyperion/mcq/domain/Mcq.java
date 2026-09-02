@@ -226,19 +226,24 @@ public final class Mcq {
     /**
      * Accept/reject outcome together with the scores it was derived from.
      * <p>
-     * The threshold is applied outside the model call, so {@code accepted} can be recomputed from
-     * {@code aggregateScore} without issuing new calls. A decision is only produced when all five
-     * failure modes were judged.
+     * {@code accepted} is exactly {@code aggregateScore >= threshold}, so any decision can be recomputed
+     * at a different threshold from stored data without issuing new calls. A decision is only produced
+     * when all five failure modes were judged.
+     * <p>
+     * Each mode's {@code triggered} flag is the model's own holistic verdict. It is recorded but takes no
+     * part in the decision, so it stays usable as an independent check on the judge's self-consistency.
      *
-     * @param aggregateScore {@code 1 - mean(severity)} across all modes, so higher is better
+     * @param aggregateScore {@code 1 - max(severity)} across all modes, so higher is better
+     * @param meanSeverity   mean severity across all modes; a descriptive statistic only, never used to
+     *                       decide acceptance
      */
-    public record FilterDecision(boolean accepted, double aggregateScore, Map<FailureMode, ModeVerdict> modeVerdicts, String filterModel, String rationale) {
+    public record FilterDecision(boolean accepted, double aggregateScore, double meanSeverity, Map<FailureMode, ModeVerdict> modeVerdicts, String filterModel, String rationale) {
     }
 
     /** One row of the run log. Rejected items are recorded alongside accepted ones. */
     public record RunRecord(int schemaVersion, String runId, String configurationId, McqItem item, ItemProvenance provenance, FilterDecision filterDecision,
             List<CallRecord> calls) {
 
-        public static final int SCHEMA_VERSION = 1;
+        public static final int SCHEMA_VERSION = 2;
     }
 }

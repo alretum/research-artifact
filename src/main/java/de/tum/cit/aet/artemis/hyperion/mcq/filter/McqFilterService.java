@@ -103,10 +103,10 @@ public class McqFilterService {
             log.warn("Filter judged {} of {} modes; discarding incomplete verdict", verdicts.size(), FailureMode.values().length);
             return new Result(null, call);
         }
+        double worstSeverity = verdicts.values().stream().mapToDouble(ModeVerdict::severity).max().orElse(1);
         double meanSeverity = verdicts.values().stream().mapToDouble(ModeVerdict::severity).average().orElse(1);
-        double aggregate = 1 - meanSeverity;
-        boolean accepted = aggregate >= threshold && verdicts.values().stream().noneMatch(ModeVerdict::triggered);
-        return new Result(new FilterDecision(accepted, aggregate, verdicts, model, output.rationale()), call);
+        double aggregate = 1 - worstSeverity;
+        return new Result(new FilterDecision(aggregate >= threshold, aggregate, meanSeverity, verdicts, model, output.rationale()), call);
     }
 
     private static Map<FailureMode, ModeVerdict> toVerdicts(List<ModeScore> scores) {
