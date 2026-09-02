@@ -116,6 +116,34 @@ class McqGenerationServiceTest {
     }
 
     @Test
+    void rejectsAnOptionReferringToTheOptionSet() {
+        respondWith(itemJson("PUT", true, "POST", false, "GET", false, "All of the above", false));
+
+        assertThat(generate().failure()).isEqualTo(Failure.VALIDATION_VIOLATION);
+    }
+
+    @Test
+    void rejectsNoneOfTheAboveRegardlessOfCasing() {
+        respondWith(itemJson("PUT", true, "POST", false, "GET", false, "none of these options", false));
+
+        assertThat(generate().failure()).isEqualTo(Failure.VALIDATION_VIOLATION);
+    }
+
+    @Test
+    void rejectsAnOptionContainedWholeInsideAnother() {
+        respondWith(itemJson("PUT", true, "PUT and DELETE", false, "POST", false, "GET", false));
+
+        assertThat(generate().failure()).isEqualTo(Failure.VALIDATION_VIOLATION);
+    }
+
+    @Test
+    void allowsCoincidentalSubstringsThatAreNotWholeWords() {
+        respondWith(itemJson("12", true, "2", false, "120", false, "21", false));
+
+        assertThat(generate().succeeded()).isTrue();
+    }
+
+    @Test
     void reportsTransportFailureAfterExhaustingAttempts() {
         when(chatModel.call(any(Prompt.class))).thenThrow(new IllegalStateException("connection refused"));
 

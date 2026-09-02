@@ -3,6 +3,7 @@ package de.tum.cit.aet.artemis.hyperion.mcq.generation;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +36,16 @@ public class McqGenerationService {
     private static final String USER_PROMPT = "/prompts/mcq/mcq_generate_user.st";
 
     private static final int REQUIRED_OPTION_COUNT = 4;
+
+    /**
+     * Options that refer to the option set instead of the subject matter: "all of the above", "none of
+     * these options", "both a and b", "all answers are correct" and their variants. Matching is
+     * case-insensitive and anchored on word boundaries.
+     */
+    private static final Pattern BANNED_CONSTRUCTION = Pattern.compile(
+            "\\b(all|none|both|any|either|neither) of (the |these |those )?(above|below|these|those|options|answers|preceding)\\b"
+                    + "|\\bboth [a-d] and [a-d]\\b|\\ba and b\\b|\\ball answers are correct\\b",
+            Pattern.CASE_INSENSITIVE);
 
     private final PromptTemplateService templates;
 
@@ -127,9 +138,38 @@ public class McqGenerationService {
         if (distinct != REQUIRED_OPTION_COUNT) {
             return false;
         }
+        if (item.options().stream().anyMatch(option -> BANNED_CONSTRUCTION.matcher(option.text()).find())) {
+            return false;
+        }
+        if (hasContainedOption(item.options())) {
+            return false;
+        }
         return item.options().stream().filter(AnswerOption::correct).count() == 1;
     }
 
+    /**
+     * Detect one option appearing as a whole phrase inside another, which lets a student eliminate by
+     * overlap. Matching on word boundaries avoids flagging coincidental substrings such as "2" inside "12".
+     *
+     * @param options the item's options
+     * @return {@code true} if any option's text is contained in another's
+     */
+    private static boolean hasContainedOption(List<AnswerOption> options) {
+        List<String> normalised = options.stream().map(option -> option.text().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").replaceAll("[.,;:]+$", "").strip()).toList();
+        for (int i = 0; i < normalised.size(); i++) {
+            for (int j = 0; j < normalised.size(); j++) {
+                if (i == j) {
+                    continue;
+                }
+                String shorter = normalised.get(i);
+                String longer = normalised.get(j);
+                if (shorter.length() < longer.length() && Pattern.compile("\\b" + Pattern.quote(shorter) + "\\b").matcher(longer).find()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
