@@ -88,7 +88,7 @@ public class McqGenerationService {
 
         String text = outcome.text();
         if (text == null || text.isBlank()) {
-            return new Result(null, user, call, Failure.EMPTY_RESPONSE);
+            return new Result(null, user, call.withFailureCategory(Failure.EMPTY_RESPONSE.name()), Failure.EMPTY_RESPONSE);
         }
 
         GeneratedItem generated;
@@ -97,14 +97,15 @@ public class McqGenerationService {
         }
         catch (Exception e) {
             log.warn("Could not parse generated item: {}", e.getMessage());
-            return new Result(null, user, call, Failure.MALFORMED_JSON);
+            return new Result(null, user, call.withFailureCategory(Failure.MALFORMED_JSON.name()), Failure.MALFORMED_JSON);
         }
         if (generated == null || generated.options() == null) {
-            return new Result(null, user, call, Failure.SCHEMA_VIOLATION);
+            return new Result(null, user, call.withFailureCategory(Failure.SCHEMA_VIOLATION.name()), Failure.SCHEMA_VIOLATION);
         }
 
         McqItem item = toItem(generated);
-        return validate(item) ? new Result(item, user, call, null) : new Result(null, user, call, Failure.VALIDATION_VIOLATION);
+        return validate(item) ? new Result(item, user, call, null)
+                : new Result(null, user, call.withFailureCategory(Failure.VALIDATION_VIOLATION.name()), Failure.VALIDATION_VIOLATION);
     }
 
     private static McqItem toItem(GeneratedItem generated) {

@@ -302,6 +302,43 @@ public class RunStore implements AutoCloseable {
     }
 
     /**
+     * An item that exhausted its attempts.
+     *
+     * @param state   the terminal state reached
+     * @param failure the category of the final failure
+     */
+    public record FailedItem(ItemKey key, ItemState state, String failure, int generationAttempts, int filterAttempts, String callsJson) {
+    }
+
+    /**
+     * Read items that failed permanently. These never appear in the exported run log, because they have no
+     * question to export, so this is the only record that they were attempted at all.
+     *
+     * @param runId run to read
+     * @return failed items ordered by topic and index
+     */
+    public synchronized List<FailedItem> failedItems(String runId) {
+        List<FailedItem> items = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT configuration_id, topic_key, item_index, state, failure, generation_attempts, filter_attempts, calls_json
+                FROM item WHERE run_id = ? AND state IN (?, ?) ORDER BY topic_key, item_index""")) {
+            statement.setString(1, runId);
+            statement.setString(2, ItemState.FAILED_GENERATION.name());
+            statement.setString(3, ItemState.FAILED_FILTER.name());
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    items.add(new FailedItem(new ItemKey(runId, rows.getString(1), rows.getString(2), rows.getInt(3)), ItemState.valueOf(rows.getString(4)), rows.getString(5),
+                            rows.getInt(6), rows.getInt(7), rows.getString(8)));
+                }
+            }
+        }
+        catch (SQLException e) {
+            throw new IllegalStateException("Failed to read failed items of run " + runId, e);
+        }
+        return items;
+    }
+
+    /**
      * @return identifiers of every run in the store, most recent first
      */
     public synchronized List<String> runIds() {

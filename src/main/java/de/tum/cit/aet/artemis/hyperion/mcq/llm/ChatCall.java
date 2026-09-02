@@ -110,6 +110,7 @@ public final class ChatCall {
         }
         long elapsedMs = (System.nanoTime() - start) / 1_000_000;
         String outcome = failure == null ? "success" : "error";
-        return new CallRecord(requestId, stage, model, promptTokens, completionTokens, elapsedMs, retries, outcome, failure == null ? null : failure.getMessage());
+        String category = failure == null ? null : "TRANSPORT";
+        return new CallRecord(requestId, stage, model, promptTokens, completionTokens, elapsedMs, retries, outcome, failure == null ? null : failure.getMessage(), category);
     }
 }

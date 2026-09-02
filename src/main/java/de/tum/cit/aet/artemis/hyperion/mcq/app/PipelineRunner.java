@@ -37,6 +37,7 @@ import de.tum.cit.aet.artemis.hyperion.mcq.ingest.TopicCatalogue.Topic;
 import de.tum.cit.aet.artemis.hyperion.mcq.retrieval.EmbeddingSnippetSource;
 import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore;
 import de.tum.cit.aet.artemis.hyperion.mcq.telemetry.CompositionReporter;
+import de.tum.cit.aet.artemis.hyperion.mcq.telemetry.FailureReporter;
 import de.tum.cit.aet.artemis.hyperion.mcq.telemetry.RunExporter;
 import de.tum.cit.aet.artemis.hyperion.mcq.telemetry.RunLogWriter;
 
@@ -75,8 +76,11 @@ public class PipelineRunner implements ApplicationRunner {
 
     private final RunExporter exporter;
 
+    private final FailureReporter failures;
+
     public PipelineRunner(PipelineProperties properties, EmbeddingModel embeddingModel, ChatClient.Builder chatClientBuilder, GroundingAssemblyService groundingAssembly,
-            McqGenerationService generation, McqFilterService filter, RunLogWriter runLog, ExtractionReportWriter reportWriter, CompositionReporter compositionReporter, RunExporter exporter) {
+            McqGenerationService generation, McqFilterService filter, RunLogWriter runLog, ExtractionReportWriter reportWriter, CompositionReporter compositionReporter,
+            RunExporter exporter, FailureReporter failures) {
         this.properties = properties;
         this.embeddingModel = embeddingModel;
         this.chatClientBuilder = chatClientBuilder;
@@ -87,6 +91,7 @@ public class PipelineRunner implements ApplicationRunner {
         this.reportWriter = reportWriter;
         this.compositionReporter = compositionReporter;
         this.exporter = exporter;
+        this.failures = failures;
     }
 
     private ApplicationArguments arguments;
@@ -132,6 +137,7 @@ public class PipelineRunner implements ApplicationRunner {
             log.info("processed {} units in {} s, states now {}", processed, seconds, store.stateCounts(runId));
             log.info("complete: {}", store.isComplete(runId));
             exporter.export(store, runId, Path.of(properties.runLogPath()), Path.of(properties.itemsMarkdownPath()));
+            failures.report(store, runId);
         }
     }
 

@@ -199,14 +199,29 @@ public final class Mcq {
 
     /**
      * One LLM call, recorded for successful and failed calls alike.
+     * <p>
+     * {@code outcome} describes the call itself, so a response that arrived but could not be parsed is
+     * {@code "success"} here. {@code failureCategory} describes what the pipeline made of the response and
+     * is the field that distinguishes malformed output from a schema or validation failure. Because these
+     * records accumulate across attempts and are never cleared on eventual success, they preserve the full
+     * attempt history of an item.
      *
      * @param stage           {@code "generation"} or {@code "filter"}
      * @param promptTokens    reported by the provider, {@code null} when unavailable
-     * @param outcome         {@code "success"}, {@code "error"} or {@code "timeout"}
-     * @param errorMessage    {@code null} on success
+     * @param outcome         {@code "success"}, {@code "error"} or {@code "timeout"} for the call
+     * @param errorMessage    {@code null} unless the call itself failed
+     * @param failureCategory why the attempt did not yield a usable result, {@code null} when it did
      */
     public record CallRecord(String requestId, String stage, String model, Integer promptTokens, Integer completionTokens, long wallClockMs, int retryCount, String outcome,
-            String errorMessage) {
+            String errorMessage, String failureCategory) {
+
+        /**
+         * @param category failure category to attach
+         * @return a copy carrying the given category
+         */
+        public CallRecord withFailureCategory(String category) {
+            return new CallRecord(requestId, stage, model, promptTokens, completionTokens, wallClockMs, retryCount, outcome, errorMessage, category);
+        }
     }
 
     /** Item defects the filter judges. */
