@@ -39,6 +39,22 @@ class PromptGoldenFileTest {
     }
 
     @Test
+    void quizSystemPromptMatchesItsGoldenFile() throws IOException {
+        check("/prompts/mcq/mcq_generate_quiz_system.st", Map.of());
+    }
+
+    @Test
+    void quizUserPromptMatchesItsGoldenFile() throws IOException {
+        check("/prompts/mcq/mcq_generate_quiz_user.st", quizVariables("topic", "Duality"));
+    }
+
+    @Test
+    void quizCompetencyUserPromptMatchesItsGoldenFile() throws IOException {
+        check("/prompts/mcq/mcq_generate_quiz_user_competency.st",
+                quizVariables("competencies", "Arrays (APPLY)\n- Du kannst Arrays erstellen.\n- Du kannst auf Elemente im Array zugreifen."));
+    }
+
+    @Test
     void filterSystemPromptMatchesItsGoldenFile() throws IOException {
         check("/prompts/mcq/mcq_filter_system.st", Map.of());
     }
@@ -80,6 +96,21 @@ class PromptGoldenFileTest {
         }
         assertThat(golden).as("golden file for %s; generate it with ./gradlew test -DupdateGolden=true", templatePath).exists();
         assertThat(rendered).isEqualTo(Files.readString(golden));
+    }
+
+    private static Map<String, Object> quizVariables(String focusKey, String focusValue) {
+        Map<String, Object> variables = new java.util.HashMap<>();
+        variables.put("groundingBlock", grounding().renderedBlock());
+        variables.put("course", "EIDI");
+        variables.put(focusKey, focusValue);
+        variables.put("language", "de");
+        variables.put("questionTypes", "single-choice, multiple-choice");
+        variables.put("numberOfQuestions", 10);
+        variables.put("optionCount", 4);
+        variables.put("difficulty", 50);
+        variables.put("instructions", "(none)");
+        variables.put("format", "<format>");
+        return variables;
     }
 
     private static Map<String, Object> requestVariables() {

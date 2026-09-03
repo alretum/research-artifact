@@ -7,6 +7,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import java.util.Set;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,8 +19,12 @@ import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.openai.OpenAiChatOptions;
 
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.Difficulty;
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.GenerationRequest;
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.Language;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.GroundingComposition;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.GroundingContext;
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.QuestionType;
 import de.tum.cit.aet.artemis.hyperion.mcq.generation.McqGenerationService.Failure;
 import de.tum.cit.aet.artemis.hyperion.mcq.llm.PromptTemplateService;
 
@@ -141,6 +146,79 @@ class McqGenerationServiceTest {
         respondWith(itemJson("12", true, "2", false, "120", false, "21", false));
 
         assertThat(generate().succeeded()).isTrue();
+    }
+
+    @Test
+    void generateQuiz_returnsEveryValidQuestionAndCountsTheInvalid() {
+        respondWith("""
+                { "questions": [
+                  { "type": "single-choice", "title": "Q1", "questionText": "A?",
+                    "options": [ {"text":"a","correct":true}, {"text":"b","correct":false}, {"text":"c","correct":false}, {"text":"d","correct":false} ],
+                    "explanation": "e" },
+                  { "type": "multiple-choice", "title": "Q2", "questionText": "B?",
+                    "options": [ {"text":"a","correct":true}, {"text":"b","correct":true}, {"text":"c","correct":false}, {"text":"d","correct":false} ],
+                    "explanation": "e" },
+                  { "type": "single-choice", "title": "Q3", "questionText": "C?",
+                    "options": [ {"text":"a","correct":true}, {"text":"b","correct":true}, {"text":"c","correct":false}, {"text":"d","correct":false} ],
+                    "explanation": "e" } ] }
+                """);
+
+        var result = generateQuiz(Set.of(QuestionType.SINGLE_CHOICE, QuestionType.MULTIPLE_CHOICE));
+
+        assertThat(result.failure()).isNull();
+        assertThat(result.items()).hasSize(2);
+        assertThat(result.items().get(0).type()).isEqualTo(QuestionType.SINGLE_CHOICE);
+        assertThat(result.items().get(1).type()).isEqualTo(QuestionType.MULTIPLE_CHOICE);
+        assertThat(result.invalidCount()).isEqualTo(1);
+    }
+
+    @Test
+    void generateQuiz_rejectsAMultipleChoiceQuestionWithEveryOptionCorrect() {
+        respondWith("""
+                { "questions": [
+                  { "type": "multiple-choice", "title": "Q", "questionText": "A?",
+                    "options": [ {"text":"a","correct":true}, {"text":"b","correct":true}, {"text":"c","correct":true}, {"text":"d","correct":true} ],
+                    "explanation": "e" } ] }
+                """);
+
+        var result = generateQuiz(Set.of(QuestionType.MULTIPLE_CHOICE));
+
+        assertThat(result.failure()).isEqualTo(Failure.VALIDATION_VIOLATION);
+        assertThat(result.invalidCount()).isEqualTo(1);
+    }
+
+    @Test
+    void generateQuiz_dropsAQuestionOfATypeTheRequestDidNotAskFor() {
+        respondWith("""
+                { "questions": [
+                  { "type": "multiple-choice", "title": "Q1", "questionText": "A?",
+                    "options": [ {"text":"a","correct":true}, {"text":"b","correct":true}, {"text":"c","correct":false}, {"text":"d","correct":false} ],
+                    "explanation": "e" },
+                  { "type": "single-choice", "title": "Q2", "questionText": "B?",
+                    "options": [ {"text":"a","correct":true}, {"text":"b","correct":false}, {"text":"c","correct":false}, {"text":"d","correct":false} ],
+                    "explanation": "e" } ] }
+                """);
+
+        var result = generateQuiz(Set.of(QuestionType.SINGLE_CHOICE));
+
+        assertThat(result.items()).hasSize(1);
+        assertThat(result.items().getFirst().title()).isEqualTo("Q2");
+        assertThat(result.invalidCount()).isEqualTo(1);
+    }
+
+    @Test
+    void generateQuiz_reportsMalformedJson() {
+        respondWith("no json here");
+
+        var result = generateQuiz(Set.of(QuestionType.SINGLE_CHOICE));
+
+        assertThat(result.failure()).isEqualTo(Failure.MALFORMED_JSON);
+        assertThat(result.call().failureCategory()).isEqualTo("MALFORMED_JSON");
+    }
+
+    private McqGenerationService.QuizResult generateQuiz(Set<QuestionType> types) {
+        GenerationRequest request = new GenerationRequest("r1", "EIDI", "HTTP", null, null, Language.EN, types, 3, Difficulty.MEDIUM);
+        return service.generateQuiz(request, null, grounding(), 3, "test-model", 0.7, 1, chatClient);
     }
 
     @Test
