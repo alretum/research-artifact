@@ -22,6 +22,7 @@ import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter.Granulari
 import de.tum.cit.aet.artemis.hyperion.mcq.cost.CostReporter;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.FilterDecision;
 import de.tum.cit.aet.artemis.hyperion.mcq.approach.AgenticApproach;
+import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.SweepExporter;
 import de.tum.cit.aet.artemis.hyperion.mcq.approach.TwoPhaseApproach;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.GenerationRequest;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyCatalogue;
@@ -104,12 +105,14 @@ public class PipelineRunner implements ApplicationRunner {
 
     private final TwoPhaseApproach twoPhase;
 
+    private final SweepExporter sweepExporter;
+
     private final tools.jackson.databind.json.JsonMapper mapper = de.tum.cit.aet.artemis.hyperion.mcq.llm.StructuredOutputs.outputMapper();
 
     public PipelineRunner(PipelineProperties properties, EmbeddingModel embeddingModel, ChatClient.Builder chatClientBuilder, GroundingAssemblyService groundingAssembly,
             McqGenerationService generation, McqFilterService filter, RunLogWriter runLog, ExtractionReportWriter reportWriter, CompositionReporter compositionReporter
             , RunExporter exporter, ThresholdSweep sweep, FailureReporter failures, CostReporter cost, BenchmarkExporter benchmark, ReadinessService readiness,
-            AgenticApproach agentic, TwoPhaseApproach twoPhase) {
+            AgenticApproach agentic, TwoPhaseApproach twoPhase, SweepExporter sweepExporter) {
         this.properties = properties;
         this.embeddingModel = embeddingModel;
         this.chatClientBuilder = chatClientBuilder;
@@ -127,6 +130,7 @@ public class PipelineRunner implements ApplicationRunner {
         this.readiness = readiness;
         this.agentic = agentic;
         this.twoPhase = twoPhase;
+        this.sweepExporter = sweepExporter;
     }
 
     private ApplicationArguments arguments;
@@ -136,7 +140,8 @@ public class PipelineRunner implements ApplicationRunner {
         this.arguments = args;
         if (!args.containsOption("count") && !args.containsOption("resume") && !args.containsOption("report") && !args.containsOption("sweep")
                 && !args.containsOption("cost") && !args.containsOption("plan") && !args.containsOption("run-plan") && !args.containsOption("export-benchmark")
-                && !args.containsOption("doctor") && !args.containsOption("redecide") && !args.containsOption("experiment") && !args.containsOption("retrieval-only")) {
+                && !args.containsOption("doctor") && !args.containsOption("redecide") && !args.containsOption("experiment") && !args.containsOption("export-experiment")
+                && !args.containsOption("retrieval-only")) {
             log.info("No command argument given; the web interface is available at http://localhost:8080");
             return;
         }
@@ -160,6 +165,10 @@ public class PipelineRunner implements ApplicationRunner {
         }
         if (args.containsOption("experiment")) {
             runExperiment(Path.of(args.getOptionValues("experiment").getFirst()));
+            return;
+        }
+        if (args.containsOption("export-experiment")) {
+            exportExperiment(Path.of(args.getOptionValues("export-experiment").getFirst()));
             return;
         }
         if (args.containsOption("run-plan")) {
@@ -365,6 +374,22 @@ public class PipelineRunner implements ApplicationRunner {
                     new SweepRunner.Dependencies(manifests, indexed.source(), groundingAssembly, generation, filter, agentic, twoPhase, store, registry, properties));
             int assembled = runner.run(hashes);
             log.info("Sweep {} complete: {} quizzes newly assembled, {} stored in total", plan.sweep(), assembled, store.quizzes(plan.sweep()).size());
+        }
+    }
+
+    /**
+     * Export a completed sweep as benchmark input.
+     *
+     * @param sweepFile the sweep plan the quizzes were assembled from
+     */
+    private void exportExperiment(Path sweepFile) {
+        SweepPlan plan = SweepPlan.load(sweepFile);
+        List<GenerationRequest> requests = RequestFileReader.read(Path.of(plan.requestsFile()));
+        Map<String, de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyManifest> manifests = resolveManifests(requests);
+        try (RunStore store = new RunStore(Path.of(properties.batch().databasePath()))) {
+            Path directory = Path.of(properties.benchmarkExportPath()).resolve(plan.sweep());
+            List<Path> written = sweepExporter.export(store, plan.sweep(), requests, manifests, directory);
+            log.info("Exported {} quizzes to {}", written.size(), directory);
         }
     }
 
