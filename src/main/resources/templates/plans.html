@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Plans', ~{::body-content})}">
+<body>
+<th:block th:fragment="body-content">
+
+    <h2>Run plans</h2>
+    <p class="muted">A plan runs several generator/filter pairings over the same topics from one button.
+        Cells run one after another: the model server is the scarce resource, and running them at once would
+        inflate each other's latency so no cell's timings could be reported.</p>
+
+    <div class="notice" th:if="${plan != null and not plan.finished()}">
+        <strong th:text="'Running plan ' + ${plan.name()}"></strong>
+        <span th:text="'— cell ' + ${plan.currentCell()} + ', ' + ${#lists.size(plan.completed())} + ' of ' + ${#lists.size(plan.cells())} + ' done'"></span>
+    </div>
+    <div class="notice" th:if="${plan != null and plan.finished()}">
+        Plan <span th:text="${plan.name()}"></span> finished
+        <span th:text="'(' + ${#lists.size(plan.completed())} + ' of ' + ${#lists.size(plan.cells())} + ' cells)'"></span>.
+        <a th:href="@{/export}">Export the results</a>
+    </div>
+
+    <h3>Create a plan</h3>
+    <div class="card">
+        <form method="post" th:action="@{/plans/create}" class="fields">
+            <div>
+                <label for="name">Name</label>
+                <input id="name" name="name" type="text" placeholder="local-vs-cloud" required style="width:12rem">
+            </div>
+            <div>
+                <label for="planItems">Items per topic</label>
+                <input id="planItems" name="itemsPerTopic" type="number" value="4" min="1" max="50" style="width:6rem">
+            </div>
+            <div>
+                <label for="generators">Generator models</label>
+                <select id="generators" name="generators" multiple size="4" required>
+                    <option th:each="m : ${modelOptions}" th:value="${m}" th:text="${m}"></option>
+                </select>
+            </div>
+            <div>
+                <label for="filters">Filter models</label>
+                <select id="filters" name="filters" multiple size="4" required>
+                    <option th:each="m : ${modelOptions}" th:value="${m}" th:text="${m}"></option>
+                </select>
+                <span class="muted">Every generator is paired with every filter. Two of each gives the 2×2.</span>
+            </div>
+            <div>
+                <label for="planTopics">Topics (none = all grounded)</label>
+                <select id="planTopics" name="topics" multiple size="4" style="min-width:16rem">
+                    <option th:each="t : ${topics}" th:if="${t.grounded()}" th:value="${t.key()}" th:text="${t.key()}"></option>
+                </select>
+            </div>
+            <button class="primary" type="submit">Create plan</button>
+        </form>
+        <p class="muted" th:if="${#lists.size(modelOptions) < 2}">Only one model is available, so a plan made
+            now has a single cell that judges its own output. Declare a second model in
+            <span class="pill">config/models.yml</span> for a real matrix.</p>
+    </div>
+
+    <h3>Existing plans</h3>
+    <div class="card" th:each="p : ${plans}">
+        <h4 th:text="${p.name()}"></h4>
+        <p class="muted" th:text="${p.file()}"></p>
+        <p><strong th:text="${p.totalItems()}">0</strong> items as written —
+            <span th:text="${#lists.size(p.configurations())} + ' configuration(s) × ' + ${p.topicCount()} + ' topic(s) × ' + ${p.itemsPerTopic()} + ' item(s)'"></span>
+        </p>
+
+        <table class="checks">
+            <tr><td class="name">Configuration</td><td>Generator</td><td>Filter</td><td></td></tr>
+            <tr th:each="c : ${p.configurations()}">
+                <td class="name" th:text="${c.id()}"></td>
+                <td th:text="${c.generator()}"></td>
+                <td th:text="${c.filter()}"></td>
+                <td class="muted" th:text="${c.isSelfJudging()} ? 'judges its own output' : ''"></td>
+            </tr>
+        </table>
+
+        <div class="notice error" th:if="${p.problem() != null}" th:text="${p.problem()}"></div>
+
+        <div class="actions">
+            <form method="post" th:action="@{/plans/run}" th:if="${p.problem() == null}">
+                <input type="hidden" name="file" th:value="${p.file()}">
+                <label th:for="'items-' + ${p.name()}">Items per topic for this run</label>
+                <div class="row">
+                    <input th:id="'items-' + ${p.name()}" name="itemsPerTopic" type="number"
+                           th:placeholder="${p.itemsPerTopic()}" min="1" max="50" style="width:6rem">
+                    <button class="primary" type="submit" th:disabled="${activeRunId != null}">Run this plan</button>
+                </div>
+                <span class="muted">Blank uses the plan's own value of
+                    <span th:text="${p.itemsPerTopic()}"></span>. Lower it to try the plan cheaply first.</span>
+            </form>
+            <form method="post" th:action="@{/plans/delete}"
+                  onsubmit="return confirm('Delete this plan file? Items it already produced are kept.')">
+                <button type="submit" th:disabled="${activeRunId != null}">Delete plan</button>
+                <input type="hidden" name="fileName" th:value="${p.fileName()}">
+            </form>
+        </div>
+        <p class="muted" th:if="${activeRunId != null}">Something is already running, so this plan cannot start yet.</p>
+    </div>
+
+    <div class="card" th:if="${#lists.isEmpty(plans)}">
+        <p class="muted">No plans yet. Create one above.</p>
+    </div>
+
+</th:block>
+</body>
+</html>

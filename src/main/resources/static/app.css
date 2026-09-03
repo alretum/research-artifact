@@ -42,3 +42,32 @@ form.inline { display:flex; gap:.75rem; align-items:flex-end; flex-wrap:wrap; }
 .notice.error { border-color:var(--bad); }
 pre { white-space:pre-wrap; font-size:.82rem; color:var(--muted); margin:.3rem 0 0; }
 .sev { display:inline-block; width:44px; text-align:right; font-variant-numeric:tabular-nums; }
+
+/* Checklist and definition tables. Colours come from the variables so dark mode works. */
+table.checks td { border-top:1px solid var(--line); border-bottom:0; }
+table.checks tr:first-child td { border-top:0; }
+table.checks td.mark { width:3.4rem; font-weight:600; font-size:.78rem; letter-spacing:.04em; white-space:nowrap; }
+table.checks tr.ok td.mark { color:var(--ok); }
+table.checks tr.warn td.mark { color:var(--warn); }
+table.checks tr.blocked td.mark { color:var(--bad); }
+table.checks td.name { width:16rem; font-weight:600; word-break:break-word; }
+table.checks .fix { margin-top:.2rem; }
+
+/* Forms with more than a couple of fields. Each field stacks label, control and hint, and the fields
+   themselves flow in a grid, so a multi-select or a long hint cannot drag the row out of alignment the
+   way a single flex line does. */
+form.fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:1rem 1.25rem; align-items:start; }
+form.fields > div { display:flex; flex-direction:column; gap:.3rem; min-width:0; }
+form.fields > div > .muted { font-size:.8rem; line-height:1.45; }
+form.fields > button { grid-column:1/-1; justify-self:start; margin-top:.25rem; }
+form.fields input, form.fields select { width:100%; }
+select[multiple] { min-height:7rem; }
+h3 { font-size:.9rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:1.75rem 0 .6rem; font-weight:600; }
+h4 { font-size:.95rem; margin:0 0 .2rem; font-weight:600; }
+main, .card { overflow-wrap:break-word; }
+
+/* Action rows: a primary form and a secondary one side by side, each keeping its own hint below it. */
+.actions { display:flex; flex-wrap:wrap; gap:1.5rem; align-items:flex-start; margin-top:.9rem; }
+.actions > form { display:flex; flex-direction:column; gap:.3rem; }
+.actions .row { display:flex; gap:.5rem; align-items:center; }
+.actions .muted { font-size:.8rem; max-width:32rem; }

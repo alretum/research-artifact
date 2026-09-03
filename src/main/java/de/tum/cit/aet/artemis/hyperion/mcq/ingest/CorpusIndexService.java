@@ -22,9 +22,9 @@ import de.tum.cit.aet.artemis.hyperion.mcq.retrieval.EmbeddingSnippetSource;
 /**
  * Loads, chunks and indexes the corpus once, and holds the result for the lifetime of the application.
  * <p>
- * The index is built on first access, not at startup, so a command that needs no corpus never pays for it.
- * The first caller blocks for as long as extraction and embedding take; every later caller is served the
- * same instance.
+ * Building the index costs about twenty seconds when the embedding cache is cold, so both the command line
+ * and the web interface share one instance. Loading happens on first access rather than at startup, so tests
+ * and commands that need no corpus do not pay for it.
  */
 @Service
 public class CorpusIndexService {
@@ -70,6 +70,26 @@ public class CorpusIndexService {
                 index = build();
             }
             return index;
+        }
+    }
+
+    /**
+     * Drop the cached index so the next request rebuilds it.
+     * <p>
+     * Also deletes the on-disk cache, because it is keyed on a fingerprint of the corpus and the embedding
+     * model; leaving a stale file would have the next run silently reuse an index that no longer matches
+     * the material. Called after the corpus changes.
+     */
+    public synchronized void invalidate() {
+        index = null;
+        java.nio.file.Path cache = java.nio.file.Path.of(properties.chunking().indexPath());
+        try {
+            if (java.nio.file.Files.deleteIfExists(cache)) {
+                log.info("Corpus changed: dropped the cached index at {}; it will be rebuilt on next use", cache);
+            }
+        }
+        catch (java.io.IOException e) {
+            log.warn("Could not delete the cached index at {}: {}. Delete it by hand before the next run.", cache, e.getMessage());
         }
     }
 

@@ -1,0 +1,25 @@
+# TEMPLATE — copy this out of the repository before filling it in:
+#
+#   cp config/logos-env.example ~/.logos-env && chmod 600 ~/.logos-env
+#
+# The real file lives in your home directory, never in the repo, and holds your Logos credentials.
+# This template is committed; the copy you fill in is not. See README.md section 4.1.
+#
+#   source ~/.logos-env
+#
+# Reload it in every new shell, or add the source line to ~/.zshenv to have it always present.
+
+# REQUIRED. Your personal Logos API key. Paste it between the quotes, no "Bearer " prefix.
+# While this is empty every chat call fails with: 401: Invalid or inactive logos key
+export LOGOS_API_KEY="paste-your-logos-key-here"
+
+# REQUIRED-ish. The exact chat model id, which must match Logos byte-for-byte. The pipeline defaults
+# to openai/gpt-oss-120b; set this if /v1/models reports a different id. Confirm with:
+#   curl -s https://logos.aet.cit.tum.de/v1/models \
+#     -H "Authorization: Bearer $LOGOS_API_KEY" | python3 -m json.tool
+export LOGOS_MODEL="openai/gpt-oss-120b"
+
+# OPTIONAL. Only set these if the defaults are wrong.
+# export LOGOS_BASE_URL="https://logos.aet.cit.tum.de/v1"
+# export EMBEDDING_BASE_URL="http://localhost:11434/v1"
+# export EMBEDDING_MODEL="nomic-embed-text"

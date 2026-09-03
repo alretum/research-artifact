@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Export', ~{::body-content})}">
+<body>
+<th:block th:fragment="body-content">
+
+    <h2>Export for the quality benchmark</h2>
+    <p class="muted">Writes every completed item as benchmark input and downloads it as a zip. No model
+        calls, so this is free and repeatable. Quality is judged by the external benchmark rather than
+        here, because this pipeline's own filter runs on the model being tested.</p>
+
+    <div class="card grid">
+        <div><div class="stat" th:text="${itemCount}">0</div><span>items available</span></div>
+        <div><div class="stat" th:text="${acceptedCount}">0</div><span>accepted by the filter</span></div>
+        <div><div class="stat" th:text="${configurationCount}">0</div><span>configurations</span></div>
+    </div>
+
+    <div class="card">
+        <form method="post" th:action="@{/export}" class="fields">
+            <div>
+                <label for="granularity">What becomes one quiz file</label>
+                <select id="granularity" name="granularity">
+                    <option value="configuration-topic" selected>One per configuration and topic (recommended)</option>
+                    <option value="topic">One per topic, pooling configurations</option>
+                    <option value="configuration">One per configuration, spanning topics</option>
+                    <option value="run">One per run</option>
+                </select>
+                <span class="muted">The benchmark's coverage and homogeneous-options metrics compare a whole
+                    quiz against its source material, so the per-topic choices keep one quiz to one lecture.
+                    The generated config disables those two metrics for the coarser choices.</span>
+            </div>
+            <div>
+                <label for="condition">Which items to include</label>
+                <select id="condition" name="condition">
+                    <option value="all" selected>All items, with the filter's decision in metadata</option>
+                    <option value="accepted">Only items the filter accepted</option>
+                    <option value="rejected">Only items the filter rejected</option>
+                    <option value="split">Separate files per decision</option>
+                </select>
+                <span class="muted">Rejected items are kept deliberately, so comparing the two costs
+                    nothing. Choose <em>separate files</em> if you need the two quiz-level metrics to
+                    describe one decision rather than a mixture.</span>
+            </div>
+            <div>
+                <button type="submit">Export and download</button>
+            </div>
+        </form>
+    </div>
+
+    <p class="muted">The zip contains <span class="pill">quizzes/</span>,
+        <span class="pill">instructions/</span> and a <span class="pill">benchmark.yaml</span> already
+        pointing at both. Fill in an evaluator model before running it — the config leaves it blank because
+        a model that generated or filtered these items cannot independently judge them.</p>
+
+</th:block>
+</body>
+</html>

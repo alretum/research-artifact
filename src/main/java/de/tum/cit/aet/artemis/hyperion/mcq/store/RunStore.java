@@ -36,16 +36,20 @@ public class RunStore implements AutoCloseable {
     /**
      * Open or create the store at the given path.
      *
-     * @param database SQLite file; parent directories must already exist
+     * @param database SQLite file; its parent directories are created when absent
      * @throws IllegalStateException if the database cannot be opened or migrated
      */
     public RunStore(Path database) {
         try {
+            Path parent = database.toAbsolutePath().getParent();
+            if (parent != null) {
+                java.nio.file.Files.createDirectories(parent);
+            }
             this.connection = DriverManager.getConnection("jdbc:sqlite:" + database);
             this.connection.setAutoCommit(true);
             migrate();
         }
-        catch (SQLException e) {
+        catch (SQLException | java.io.IOException e) {
             throw new IllegalStateException("Failed to open run store at " + database, e);
         }
     }
@@ -106,15 +110,16 @@ public class RunStore implements AutoCloseable {
                         PRIMARY KEY (course_key, document)
                     )""");
         }
+        addColumnIfMissing("item", "difficulty", "INTEGER NOT NULL DEFAULT 50");
         addColumnIfMissing("item", "course_key", "TEXT");
         addColumnIfMissing("item", "competency_key", "TEXT");
         addColumnIfMissing("item", "language", "TEXT");
         addColumnIfMissing("item", "question_type", "TEXT");
-        addColumnIfMissing("item", "difficulty", "TEXT");
+        addColumnIfMissing("item", "difficulty_band", "TEXT");
         addColumnIfMissing("item", "section_index", "INTEGER");
         addColumnIfMissing("item", "generator_model", "TEXT");
         try (Statement statement = connection.createStatement()) {
-            statement.executeUpdate("CREATE INDEX IF NOT EXISTS pool_lookup ON item (course_key, competency_key, language, question_type, difficulty)");
+            statement.executeUpdate("CREATE INDEX IF NOT EXISTS pool_lookup ON item (course_key, competency_key, language, question_type, difficulty_band)");
         }
     }
 
@@ -138,12 +143,24 @@ public class RunStore implements AutoCloseable {
     }
 
     /**
+     * A unit of work to create, with the difficulty it must be generated at.
+     * <p>
+     * Difficulty is fixed when the item is enqueued rather than chosen when it is generated, so a run
+     * killed and resumed produces the same items.
+     *
+     * @param difficulty target difficulty from 0 to 100
+     */
+    public record QueuedItem(ItemKey key, int difficulty) {
+    }
+
+    /**
      * A claimed unit of work.
      *
      * @param generatedItemJson    the stored item, present when the claim is for filtering
      * @param provenanceJson       the stored provenance, present when the claim is for filtering
      */
-    public record Claim(ItemKey key, ItemState state, int generationAttempts, int filterAttempts, String generatedItemJson, String provenanceJson, String callsJson) {
+    public record Claim(ItemKey key, ItemState state, int difficulty, int generationAttempts, int filterAttempts, String generatedItemJson, String provenanceJson
+            , String callsJson) {
     }
 
     /**
@@ -174,12 +191,14 @@ public class RunStore implements AutoCloseable {
      * @param keys units of work to enqueue
      * @return the number of rows newly created
      */
-    public synchronized int enqueue(List<ItemKey> keys) {
+    public synchronized int enqueue(List<QueuedItem> items) {
         int created = 0;
-        for (ItemKey key : keys) {
+        for (QueuedItem queued : items) {
+            ItemKey key = queued.key();
             created += execute("""
-                    INSERT OR IGNORE INTO item (run_id, configuration_id, topic_key, item_index, state, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?)""", key.runId(), key.configurationId(), key.topicKey(), key.itemIndex(), ItemState.PENDING.name(), Instant.now().toString());
+                    INSERT OR IGNORE INTO item (run_id, configuration_id, topic_key, item_index, difficulty, state, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)""", key.runId(), key.configurationId(), key.topicKey(), key.itemIndex(), queued.difficulty(), ItemState.PENDING.name(),
+                    Instant.now().toString());
         }
         return created;
     }
@@ -228,7 +247,7 @@ public class RunStore implements AutoCloseable {
         for (PoolItem item : items) {
             created += execute("""
                     INSERT OR IGNORE INTO item (run_id, configuration_id, topic_key, item_index, state, updated_at,
-                        course_key, competency_key, language, question_type, difficulty, section_index, generator_model)
+                        course_key, competency_key, language, question_type, difficulty_band, section_index, generator_model)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", item.key().runId(), item.key().configurationId(), item.key().topicKey(), item.key().itemIndex(),
                     ItemState.PENDING.name(), Instant.now().toString(), item.cell().courseKey(), item.cell().competencyKey(), item.cell().language().code(),
                     item.cell().questionType().value(), item.cell().difficulty().value(), item.sectionIndex(), item.generatorModel());
@@ -304,7 +323,7 @@ public class RunStore implements AutoCloseable {
         String sql = """
                 SELECT i.rowid, i.run_id, i.configuration_id, i.topic_key, i.item_index, i.section_index, i.item_json, i.provenance_json, v.decision_json
                 FROM item i JOIN verdict v ON v.item_rowid = i.rowid
-                WHERE i.course_key = ? AND i.competency_key = ? AND i.language = ? AND i.question_type = ? AND i.difficulty = ?
+                WHERE i.course_key = ? AND i.competency_key = ? AND i.language = ? AND i.question_type = ? AND i.difficulty_band = ?
                   AND i.item_json IS NOT NULL AND v.judge_model = ? AND v.scope = ? AND v.accepted = 1
                 """ + (asOf == null ? "" : " AND i.updated_at <= ?") + " ORDER BY i.rowid";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -403,7 +422,7 @@ public class RunStore implements AutoCloseable {
             return Optional.empty();
         }
         try (PreparedStatement statement = connection.prepareStatement("""
-                SELECT configuration_id, topic_key, item_index, generation_attempts, filter_attempts, item_json, provenance_json, calls_json
+                SELECT configuration_id, topic_key, item_index, difficulty, generation_attempts, filter_attempts, item_json, provenance_json, calls_json
                 FROM item WHERE run_id = ? AND state = ? ORDER BY updated_at DESC LIMIT 1""")) {
             statement.setString(1, runId);
             statement.setString(2, to.name());
@@ -412,7 +431,7 @@ public class RunStore implements AutoCloseable {
                     return Optional.empty();
                 }
                 ItemKey key = new ItemKey(runId, rows.getString(1), rows.getString(2), rows.getInt(3));
-                return Optional.of(new Claim(key, to, rows.getInt(4), rows.getInt(5), rows.getString(6), rows.getString(7), rows.getString(8)));
+                return Optional.of(new Claim(key, to, rows.getInt(4), rows.getInt(5), rows.getInt(6), rows.getString(7), rows.getString(8), rows.getString(9)));
             }
         }
         catch (SQLException e) {
@@ -454,6 +473,29 @@ public class RunStore implements AutoCloseable {
      * @param callsJson serialised call records including the failed call
      * @param retry     whether to return the item to its previous stable state for another attempt
      */
+    /**
+     * Replace an item's stored decision without touching its state or attempt counts.
+     * <p>
+     * For recomputing decisions from verdicts already judged, which needs no model call. Deliberately not
+     * {@code recordFiltered}, which would count another filter attempt that never happened.
+     *
+     * @param key      the item
+     * @param decision serialised decision
+     */
+    public synchronized void replaceDecision(ItemKey key, String decision) {
+        update(key, "decision_json = ?", List.of(decision));
+    }
+
+    /**
+     * Read the manifest a run was registered with.
+     *
+     * @param runId run to inspect
+     * @return the stored manifest, or empty when the run is unknown
+     */
+    public synchronized Optional<String> manifestOf(String runId) {
+        return queryString("SELECT manifest FROM run WHERE run_id = ?", runId);
+    }
+
     public synchronized void recordFailure(ItemKey key, ItemState stage, String failure, String callsJson, boolean retry) {
         ItemState next;
         if (retry) {

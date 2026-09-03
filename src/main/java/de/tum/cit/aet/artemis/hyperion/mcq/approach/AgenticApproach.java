@@ -80,7 +80,7 @@ public class AgenticApproach implements QuizGenerator {
                 if (!acceptedTexts.add(normalise(item.questionText()))) {
                     continue;
                 }
-                McqFilterService.Result judged = filter.evaluate(item, grounding, FilterScope.COMBINED, fit, context.acceptThreshold(), context.judge().model(),
+                McqFilterService.Result judged = filter.evaluate(item, grounding, FilterScope.COMBINED, fit, context.acceptThreshold(), null, context.judge().model(),
                         context.judge().temperature(), context.judge().maxAttempts(), context.judge().client());
                 calls.add(judged.call());
                 if (!judged.succeeded()) {

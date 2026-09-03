@@ -149,6 +149,36 @@ class McqGenerationServiceTest {
     }
 
     @Test
+    void rejectsACorrectOptionThatIsConspicuouslyLongerThanEveryDistractor() {
+        String longCorrect = "the dual attains the same objective value and every complementary slackness condition holds simultaneously";
+        respondWith(itemJson(longCorrect, true, "the dual is unbounded", false, "the primal is infeasible", false, "the gap is positive", false));
+
+        assertThat(generate().failure()).isEqualTo(Failure.VALIDATION_VIOLATION);
+    }
+
+    @Test
+    void rejectsACorrectOptionOnlyFortyPercentLongerWhenThatIsStillManyCharacters() {
+        String correct = "a".repeat(132);
+        respondWith(itemJson(correct, true, "b".repeat(94), false, "c".repeat(90), false, "d".repeat(88), false));
+
+        assertThat(generate().failure()).isEqualTo(Failure.VALIDATION_VIOLATION);
+    }
+
+    @Test
+    void allowsALargeCharacterDifferenceWhenTheOptionsAreLongEnoughForItNotToShow() {
+        respondWith(itemJson("a".repeat(275), true, "b".repeat(250), false, "c".repeat(248), false, "d".repeat(245), false));
+
+        assertThat(generate().succeeded()).isTrue();
+    }
+
+    @Test
+    void allowsALongerCorrectOptionWhenTheDifferenceIsTooSmallToExploit() {
+        respondWith(itemJson("x* is optimal", true, "x* is dual", false, "x* is basic", false, "x* is free", false));
+
+        assertThat(generate().succeeded()).isTrue();
+    }
+
+    @Test
     void generateQuiz_returnsEveryValidQuestionAndCountsTheInvalid() {
         respondWith("""
                 { "questions": [

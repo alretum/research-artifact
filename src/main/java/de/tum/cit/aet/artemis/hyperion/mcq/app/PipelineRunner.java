@@ -9,12 +9,22 @@ import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
 import de.tum.cit.aet.artemis.hyperion.mcq.batch.BatchRunner;
+import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter;
+import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter.Condition;
+import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter.Granularity;
+import de.tum.cit.aet.artemis.hyperion.mcq.cost.CostReporter;
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.FilterDecision;
+import de.tum.cit.aet.artemis.hyperion.mcq.plan.ModelCatalogue;
+import de.tum.cit.aet.artemis.hyperion.mcq.plan.ModelRegistry;
+import de.tum.cit.aet.artemis.hyperion.mcq.plan.RunPlan;
+import de.tum.cit.aet.artemis.hyperion.mcq.readiness.ReadinessService;
 import de.tum.cit.aet.artemis.hyperion.mcq.batch.BatchRunner.TopicQuery;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.CallRecord;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.Chunk;
@@ -28,7 +38,6 @@ import de.tum.cit.aet.artemis.hyperion.mcq.filter.McqFilterService;
 import de.tum.cit.aet.artemis.hyperion.mcq.generation.McqGenerationService;
 import de.tum.cit.aet.artemis.hyperion.mcq.grounding.GroundingAssemblyService;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyManifest;
-import de.tum.cit.aet.artemis.hyperion.mcq.llm.ModelRegistry;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CorpusLoader;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.ExtractionReportWriter;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.PageChunker;
@@ -61,7 +70,7 @@ public class PipelineRunner implements ApplicationRunner {
 
     private final EmbeddingModel embeddingModel;
 
-    private final ModelRegistry models;
+    private final ChatClient.Builder chatClientBuilder;
 
     private final GroundingAssemblyService groundingAssembly;
 
@@ -81,14 +90,20 @@ public class PipelineRunner implements ApplicationRunner {
 
     private final FailureReporter failures;
 
-    private final RunStore store;
+    private final CostReporter cost;
 
-    public PipelineRunner(PipelineProperties properties, EmbeddingModel embeddingModel, ModelRegistry models, GroundingAssemblyService groundingAssembly,
-            McqGenerationService generation, McqFilterService filter, RunLogWriter runLog, ExtractionReportWriter reportWriter, CompositionReporter compositionReporter,
-            RunExporter exporter, ThresholdSweep sweep, FailureReporter failures, RunStore store) {
+    private final BenchmarkExporter benchmark;
+
+    private final ReadinessService readiness;
+
+    private final tools.jackson.databind.json.JsonMapper mapper = de.tum.cit.aet.artemis.hyperion.mcq.llm.StructuredOutputs.outputMapper();
+
+    public PipelineRunner(PipelineProperties properties, EmbeddingModel embeddingModel, ChatClient.Builder chatClientBuilder, GroundingAssemblyService groundingAssembly,
+            McqGenerationService generation, McqFilterService filter, RunLogWriter runLog, ExtractionReportWriter reportWriter, CompositionReporter compositionReporter
+            , RunExporter exporter, ThresholdSweep sweep, FailureReporter failures, CostReporter cost, BenchmarkExporter benchmark, ReadinessService readiness) {
         this.properties = properties;
         this.embeddingModel = embeddingModel;
-        this.models = models;
+        this.chatClientBuilder = chatClientBuilder;
         this.groundingAssembly = groundingAssembly;
         this.generation = generation;
         this.filter = filter;
@@ -98,7 +113,9 @@ public class PipelineRunner implements ApplicationRunner {
         this.exporter = exporter;
         this.sweep = sweep;
         this.failures = failures;
-        this.store = store;
+        this.cost = cost;
+        this.benchmark = benchmark;
+        this.readiness = readiness;
     }
 
     private ApplicationArguments arguments;
@@ -107,7 +124,8 @@ public class PipelineRunner implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         this.arguments = args;
         if (!args.containsOption("count") && !args.containsOption("resume") && !args.containsOption("report") && !args.containsOption("sweep")
-                && !args.containsOption("retrieval-only")) {
+                && !args.containsOption("cost") && !args.containsOption("plan") && !args.containsOption("run-plan") && !args.containsOption("export-benchmark")
+                && !args.containsOption("doctor") && !args.containsOption("redecide") && !args.containsOption("retrieval-only")) {
             log.info("No command argument given; the web interface is available at http://localhost:8080");
             return;
         }
@@ -117,6 +135,36 @@ public class PipelineRunner implements ApplicationRunner {
         }
         if (args.containsOption("sweep")) {
             sweep.report(Path.of(properties.runLogPath()));
+            return;
+        }
+        if (args.containsOption("cost")) {
+            try (RunStore store = new RunStore(Path.of(properties.batch().databasePath()))) {
+                cost.report(store, Path.of(properties.pricingPath()));
+            }
+            return;
+        }
+        if (args.containsOption("plan")) {
+            describePlan(Path.of(args.getOptionValues("plan").getFirst()));
+            return;
+        }
+        if (args.containsOption("run-plan")) {
+            runPlan(Path.of(args.getOptionValues("run-plan").getFirst()));
+            return;
+        }
+        if (args.containsOption("redecide")) {
+            redecide();
+            return;
+        }
+        if (args.containsOption("doctor")) {
+            readiness.report();
+            return;
+        }
+        if (args.containsOption("export-benchmark")) {
+            Granularity granularity = Granularity.parse(stringArg(args, "export-granularity", "configuration-topic"));
+            Condition condition = Condition.parse(stringArg(args, "export-condition", "all"));
+            try (RunStore store = new RunStore(Path.of(properties.batch().databasePath()))) {
+                benchmark.export(store, Path.of(args.getOptionValues("export-benchmark").getFirst()), granularity, condition, properties.language());
+            }
             return;
         }
 
@@ -135,24 +183,26 @@ public class PipelineRunner implements ApplicationRunner {
             return;
         }
 
-        store.registerRun(runId, properties.configurationId(), manifest(indexed));
+        ChatClient chatClient = chatClientBuilder.build();
+        try (RunStore store = new RunStore(java.nio.file.Path.of(properties.batch().databasePath()))) {
+            store.registerRun(runId, properties.configurationId(), manifest(indexed));
 
-        BatchRunner batch = new BatchRunner(store, batchSettings(runId),
-                new BatchRunner.Dependencies(indexed.source(), groundingAssembly, generation, filter, models.client(properties.generation().backend()),
-                        models.client(properties.filter().backend()), topics.stream().map(topic -> new TopicQuery(topic.key(), topic.query())).toList()));
+            BatchRunner batch = new BatchRunner(store, batchSettings(runId), new BatchRunner.Dependencies(indexed.source(), groundingAssembly, generation, filter, chatClient,
+                    topics.stream().map(topic -> new TopicQuery(topic.key(), topic.query())).toList()));
 
-        int created = batch.enqueue(count);
-        log.info("Run {}: {} items enqueued ({} new), states {}", runId, count, created, store.stateCounts(runId));
+            int created = batch.enqueue(count);
+            log.info("Run {}: {} items enqueued ({} new), states {}", runId, count, created, store.stateCounts(runId));
 
-        long start = System.nanoTime();
-        int processed = batch.run();
-        long seconds = (System.nanoTime() - start) / 1_000_000_000;
+            long start = System.nanoTime();
+            int processed = batch.run();
+            long seconds = (System.nanoTime() - start) / 1_000_000_000;
 
-        log.info("=== run {} ===", runId);
-        log.info("processed {} units in {} s, states now {}", processed, seconds, store.stateCounts(runId));
-        log.info("complete: {}", store.isComplete(runId));
-        exporter.export(store, runId, Path.of(properties.runLogPath()), Path.of(properties.itemsMarkdownPath()));
-        failures.report(store, runId);
+            log.info("=== run {} ===", runId);
+            log.info("processed {} units in {} s, states now {}", processed, seconds, store.stateCounts(runId));
+            log.info("complete: {}", store.isComplete(runId));
+            exporter.export(store, runId, Path.of(properties.runLogPath()), Path.of(properties.itemsMarkdownPath()));
+            failures.report(store, runId);
+        }
     }
 
 
@@ -168,11 +218,81 @@ public class PipelineRunner implements ApplicationRunner {
                 "topics=" + indexed.topics().stream().map(Topic::key).toList());
     }
 
+    /**
+     * Settings for one configuration of a plan, taking the models from the plan rather than the
+     * properties, and the configuration id from the plan rather than deriving it from model names.
+     *
+     * @param runId         run this configuration writes into
+     * @param configuration the plan entry
+     * @param generator     resolved generator model name
+     * @param filterModel   resolved filter model name
+     * @return settings for a batch
+     */
+    private BatchRunner.Settings planSettings(String runId, RunPlan.RunConfiguration configuration, String generator, String filterModel) {
+        return new BatchRunner.Settings(runId, configuration.id(), properties.retrieval().topK(), properties.retrieval().maxGroundingTokens(), properties.difficulty(),
+                properties.language(), generator, properties.generation().temperature(), properties.generation().maxAttempts(), filterModel, properties.filter().temperature(),
+                properties.filter().maxAttempts(), properties.filter().acceptThreshold(), properties.filter().gatingModes(), properties.batch().maxOutputAttempts(),
+                intArgOrDefault("concurrency", properties.batch().concurrency()));
+    }
+
+    /**
+     * Run every configuration in a plan, one after another.
+     * <p>
+     * Sequential on purpose: the model server is the scarce resource, and running cells concurrently would
+     * inflate per-call latency so that no cell's timings could be reported (THESIS_NOTES N5). Each
+     * configuration gets its own run id, because the store records one configuration per run, and its
+     * items are keyed by the plan's configuration id so the cells never collide.
+     *
+     * @param planFile the plan to run
+     */
+    private void runPlan(Path planFile) {
+        RunPlan plan = RunPlan.load(planFile);
+        ModelCatalogue catalogue = ModelCatalogue.load(Path.of(properties.modelCataloguePath()));
+        plan.validateAgainst(catalogue);
+        ModelRegistry registry = new ModelRegistry(catalogue, chatClientBuilder.build());
+        registry.validate(plan);
+
+        Indexed indexed = buildIndex();
+        List<Topic> topics = plan.topics().isEmpty() ? indexed.topics().stream().filter(Topic::grounded).toList()
+                : indexed.topics().stream().filter(topic -> plan.topics().contains(topic.key())).toList();
+        if (topics.isEmpty()) {
+            log.error("Plan '{}' matched no grounded topics; nothing to generate", plan.plan());
+            return;
+        }
+
+        int perConfiguration = plan.itemsPerTopic() * topics.size();
+        log.info("Plan '{}': {} configuration(s) x {} topic(s) x {} items = {} items", plan.plan(), plan.configurations().size(), topics.size(), plan.itemsPerTopic(),
+                plan.configurations().size() * perConfiguration);
+
+        List<TopicQuery> queries = topics.stream().map(topic -> new TopicQuery(topic.key(), topic.query())).toList();
+        try (RunStore store = new RunStore(Path.of(properties.batch().databasePath()))) {
+            for (RunPlan.RunConfiguration configuration : plan.configurations()) {
+                var generator = registry.resolve(configuration.generator());
+                var filterModel = registry.resolve(configuration.filter());
+                String runId = plan.plan() + "-" + configuration.id();
+
+                log.info("--- configuration {} ({} items) ---", configuration.id(), perConfiguration);
+                store.registerRun(runId, configuration.id(), manifest(indexed));
+                store.releaseStaleClaims(runId);
+
+                BatchRunner batch = new BatchRunner(store, planSettings(runId, configuration, generator.model(), filterModel.model()),
+                        new BatchRunner.Dependencies(indexed.source(), groundingAssembly, generation, filter, generator.client(), filterModel.client(), queries));
+                int created = batch.enqueue(perConfiguration);
+                long start = System.nanoTime();
+                int processed = batch.run();
+                log.info("configuration {}: {} enqueued ({} new), {} units processed in {} s, states {}", configuration.id(), perConfiguration, created, processed,
+                        (System.nanoTime() - start) / 1_000_000_000, store.stateCounts(runId));
+                failures.report(store, runId);
+            }
+        }
+        log.info("Plan '{}' complete. Report cost with --cost and quality with --report.", plan.plan());
+    }
+
     private BatchRunner.Settings batchSettings(String runId) {
         return new BatchRunner.Settings(runId, properties.configurationId(), properties.retrieval().topK(), properties.retrieval().maxGroundingTokens(), properties.difficulty(),
-                properties.language(), models.model(properties.generation().backend()), properties.generation().temperature(), properties.generation().maxAttempts(),
-                models.model(properties.filter().backend()), properties.filter().temperature(), properties.filter().maxAttempts(), properties.filter().acceptThreshold(),
-                properties.batch().maxOutputAttempts(),
+                properties.language(), properties.generation().model(), properties.generation().temperature(), properties.generation().maxAttempts(), properties.filter().model(),
+                properties.filter().temperature(), properties.filter().maxAttempts(), properties.filter().acceptThreshold(), properties.filter().gatingModes()
+            , properties.batch().maxOutputAttempts(),
                 intArgOrDefault("concurrency", properties.batch().concurrency()));
     }
 
@@ -254,6 +374,74 @@ public class PipelineRunner implements ApplicationRunner {
 
     private static int sum(CorpusLoader.LoadResult loaded, java.util.function.ToIntFunction<CorpusLoader.DocumentReport> field) {
         return loaded.reports().stream().mapToInt(field).sum();
+    }
+
+    /**
+     * Validate a run plan and log what it would run, without generating anything.
+     * <p>
+     * Checks every model the plan names is declared and reachable, so a mistyped key or an unset key
+     * variable fails here rather than part-way through a paid run.
+     *
+     * @param planFile the plan to describe
+     */
+    private void describePlan(Path planFile) {
+        RunPlan plan = RunPlan.load(planFile);
+        ModelCatalogue catalogue = ModelCatalogue.load(Path.of(properties.modelCataloguePath()));
+        plan.validateAgainst(catalogue);
+        ModelRegistry registry = new ModelRegistry(catalogue, chatClientBuilder.build());
+        registry.validate(plan);
+
+        String scope = plan.topics().isEmpty() ? "every grounded topic" : plan.topics().size() + " named topic(s)";
+        log.info("Plan '{}': {} configuration(s), {} items per topic, over {}", plan.plan(), plan.configurations().size(), plan.itemsPerTopic(), scope);
+        for (RunPlan.RunConfiguration configuration : plan.configurations()) {
+            log.info("  {} | generator {} -> {} | filter {} -> {}{}", configuration.id(), configuration.generator(), registry.modelNameOf(configuration.generator()).orElseThrow(),
+                    configuration.filter(), registry.modelNameOf(configuration.filter()).orElseThrow(), configuration.isSelfJudging() ? "  (self-judging)" : "");
+        }
+        long selfJudging = plan.configurations().stream().filter(RunPlan.RunConfiguration::isSelfJudging).count();
+        if (selfJudging == plan.configurations().size()) {
+            log.warn("Every configuration has one model both writing and judging, so accept rate includes self-agreement. "
+                    + "Add a configuration with a different filter model to measure independently.");
+        }
+    }
+
+    /**
+     * Recompute every stored decision from the severities already judged, under the current threshold and
+     * gating modes, and write the results back.
+     * <p>
+     * Needs no model call: the five severities per item are already stored, and the decision is a function
+     * of them. Changing which modes may reject therefore does not require regenerating anything. The
+     * previous decisions are overwritten.
+     */
+    private void redecide() {
+        int changed = 0;
+        int accepted = 0;
+        int total = 0;
+        try (RunStore store = new RunStore(Path.of(properties.batch().databasePath()))) {
+            for (String runId : store.runIds()) {
+                for (RunStore.CompletedItem item : store.completedItems(runId)) {
+                    if (item.decisionJson() == null || item.decisionJson().isBlank()) {
+                        continue;
+                    }
+                    FilterDecision before = mapper.readValue(item.decisionJson(), FilterDecision.class);
+                    FilterDecision after = McqFilterService.decide(before.modeVerdicts(), properties.filter().acceptThreshold(), properties.filter().gatingModes(),
+                            before.filterModel(), before.rationale());
+                    total++;
+                    if (after.accepted()) {
+                        accepted++;
+                    }
+                    if (after.accepted() != before.accepted() || after.aggregateScore() != before.aggregateScore()) {
+                        store.replaceDecision(item.key(), mapper.writeValueAsString(after));
+                        changed++;
+                    }
+                }
+            }
+        }
+        log.info("Recomputed {} decision(s) with threshold {} gating on {}", total, properties.filter().acceptThreshold(), properties.filter().gatingModes());
+        log.info("{} changed; {} of {} now accepted ({}%)", changed, accepted, total, total == 0 ? 0 : Math.round(100.0 * accepted / total));
+    }
+
+    private String stringArg(ApplicationArguments args, String name, String fallback) {
+        return args.containsOption(name) ? args.getOptionValues(name).getFirst() : fallback;
     }
 
     private List<Topic> resolveTopics(ApplicationArguments args, List<Topic> fromCorpus) {

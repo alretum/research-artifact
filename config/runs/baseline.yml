@@ -1,0 +1,32 @@
+# A run plan: which configurations to run, over which topics, at how many items each.
+#
+# A configuration is one generator/filter pairing. Its id is stamped on every item as
+# configuration_id, so reports group by it and items from different configurations never collide.
+#
+# This plan has a single cell, because only one chat model is currently available. The 2x2 the thesis
+# needs is below, commented out: uncomment it once a second model exists in config/models.yml.
+
+plan: baseline
+items-per-topic: 4
+
+# Empty means every grounded topic in the competency manifest.
+topics: []
+
+configurations:
+
+  - id: oss120b-gen-oss120b-filter
+    generator: gpt-oss-120b
+    filter: gpt-oss-120b
+
+# The full matrix. Note the diagonal cells have the generator judging its own output, which is why the
+# off-diagonal cells matter: they are the only ones whose accept rate is not partly self-agreement.
+#
+#  - id: oss120b-gen-other-filter
+#    generator: gpt-oss-120b
+#    filter: <second model>
+#  - id: other-gen-oss120b-filter
+#    generator: <second model>
+#    filter: gpt-oss-120b
+#  - id: other-gen-other-filter
+#    generator: <second model>
+#    filter: <second model>

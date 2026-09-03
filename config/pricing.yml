@@ -13,6 +13,8 @@ models:
   # gpu.eur-per-hour below and the measured occupancy of each call.
   "gpt-oss:20b":
     billing: gpu-time
+  "openai/gpt-oss-120b":
+    billing: gpu-time
   "llama3.1:latest":
     billing: gpu-time
 

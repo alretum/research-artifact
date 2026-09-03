@@ -1,0 +1,28 @@
+# TEMPLATE — copy it into place, then edit the copy:
+#
+#   cp config/application-local.yml.example config/application-local.yml
+#
+# Machine-specific settings for this checkout. The copy is gitignored via the **/*-local.yml rule, so it
+# is the right place for anything that should not follow the repository to another machine.
+#
+# It holds NO secrets: the Logos key comes from the environment (~/.logos-env). Never paste a key here.
+#
+# NOT loaded automatically: this is a profile-specific file, so it applies only when the profile is
+# active. Run with --spring.profiles.active=local, or the settings below are silently ignored.
+# (Only application.yml, with no profile suffix, is picked up from ./config/ on its own.)
+#
+# The loopback binding below is a belt-and-braces duplicate: application.yml already defaults to
+# 127.0.0.1, so forgetting the flag does not expose the interface.
+# See README.md section 4.
+
+server:
+  # Loopback only. The web interface has no authentication of any kind, so it must never be bound to a
+  # routable address. Reach a remote instance through an SSH tunnel instead:
+  #   ssh -L 8080:localhost:8080 <host>
+  address: 127.0.0.1
+
+mcq:
+  batch:
+    # 1 keeps per-item latency and cost attributable, which is required for any figure you intend to
+    # report (THESIS_NOTES.md N5). Raise it only for throughput runs whose timings you will not cite.
+    concurrency: 1

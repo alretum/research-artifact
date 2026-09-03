@@ -49,6 +49,12 @@ public class McqGenerationService {
 
     private static final int TRUE_FALSE_OPTION_COUNT = 2;
 
+    /** Minimum absolute length excess before the correct option counts as conspicuously long. */
+    private static final int MAX_CORRECT_OPTION_LENGTH_MARGIN = 20;
+
+    /** Minimum proportional length excess before the correct option counts as conspicuously long. */
+    private static final double MIN_CORRECT_OPTION_LENGTH_RATIO = 1.15;
+
     private static final int REQUIRED_OPTION_COUNT = 4;
 
     /**
@@ -83,8 +89,49 @@ public class McqGenerationService {
     }
 
     /** Why a generation attempt produced no usable item. */
+    /** Why a generation attempt yielded no item. */
     public enum Failure {
-        TRANSPORT, EMPTY_RESPONSE, MALFORMED_JSON, SCHEMA_VIOLATION, VALIDATION_VIOLATION
+
+        /** 401 or 403 from the provider. Permanent. */
+        AUTH,
+
+        /** A 4xx that is not an auth, timeout or throttling response. Permanent. */
+        BAD_REQUEST,
+
+        /** 429 from the provider. */
+        RATE_LIMIT,
+
+        /** A request timeout. */
+        TIMEOUT,
+
+        /** An IO failure, a 5xx, or an unrecognised error. */
+        TRANSPORT,
+
+        EMPTY_RESPONSE, MALFORMED_JSON, SCHEMA_VIOLATION, VALIDATION_VIOLATION;
+
+        /**
+         * @return whether another attempt could plausibly succeed
+         */
+        public boolean retryable() {
+            return ChatCall.retryable(name());
+        }
+    }
+
+    /**
+     * @param kind the transport-layer classification, or {@code null}
+     * @return the matching failure, defaulting to {@link Failure#TRANSPORT}
+     */
+    private static Failure toFailure(ChatCall.Kind kind) {
+        if (kind == null) {
+            return Failure.TRANSPORT;
+        }
+        return switch (kind) {
+            case AUTH -> Failure.AUTH;
+            case BAD_REQUEST -> Failure.BAD_REQUEST;
+            case RATE_LIMIT -> Failure.RATE_LIMIT;
+            case TIMEOUT -> Failure.TIMEOUT;
+            case TRANSPORT -> Failure.TRANSPORT;
+        };
     }
 
     /**
@@ -108,7 +155,7 @@ public class McqGenerationService {
         ChatCall.Outcome outcome = ChatCall.execute("generation", model, temperature, maxAttempts, chatClient, system, user);
         CallRecord call = outcome.record();
         if (!outcome.succeeded()) {
-            return new Result(null, user, call, Failure.TRANSPORT);
+            return new Result(null, user, call, toFailure(outcome.kind()));
         }
 
         String text = outcome.text();
@@ -196,7 +243,7 @@ public class McqGenerationService {
         ChatCall.Outcome outcome = ChatCall.execute("generation", model, temperature, maxAttempts, chatClient, system, user);
         CallRecord call = outcome.record();
         if (!outcome.succeeded()) {
-            return new QuizResult(List.of(), 0, user, call, Failure.TRANSPORT);
+            return new QuizResult(List.of(), 0, user, call, toFailure(outcome.kind()));
         }
         String text = outcome.text();
         if (text == null || text.isBlank()) {
@@ -273,10 +320,28 @@ public class McqGenerationService {
             return false;
         }
         long correct = item.options().stream().filter(AnswerOption::correct).count();
-        return switch (item.type()) {
+        boolean correctCountValid = switch (item.type()) {
             case SINGLE_CHOICE, TRUE_FALSE -> correct == 1;
             case MULTIPLE_CHOICE -> correct >= 1 && correct <= 3;
         };
+        return correctCountValid && !correctOptionIsConspicuouslyLong(item.options());
+    }
+
+    /**
+     * Detect the correct option being so much longer than every distractor that its length gives it away.
+     *
+     * @param options the item's options
+     * @return {@code true} when the longest correct option exceeds the longest distractor by at least
+     *         {@link #MAX_CORRECT_OPTION_LENGTH_MARGIN} characters and by more than
+     *         {@link #MIN_CORRECT_OPTION_LENGTH_RATIO} in proportion
+     */
+    private static boolean correctOptionIsConspicuouslyLong(List<AnswerOption> options) {
+        int correct = options.stream().filter(AnswerOption::correct).mapToInt(option -> option.text().strip().length()).max().orElse(0);
+        int longestDistractor = options.stream().filter(option -> !option.correct()).mapToInt(option -> option.text().strip().length()).max().orElse(0);
+        if (longestDistractor == 0) {
+            return false;
+        }
+        return correct - longestDistractor >= MAX_CORRECT_OPTION_LENGTH_MARGIN && (double) correct / longestDistractor > MIN_CORRECT_OPTION_LENGTH_RATIO;
     }
 
     /**

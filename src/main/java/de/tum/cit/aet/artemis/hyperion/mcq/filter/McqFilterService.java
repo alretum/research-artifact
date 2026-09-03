@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,8 +30,10 @@ import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.ModeVerdict;
  * whether to accept it.
  * <p>
  * All modes of the scope are judged in a single model call, and a verdict that does not cover the full
- * scope is discarded rather than defaulted. The accept threshold is applied here rather than by the model,
- * so a stored decision can be re-derived under a different threshold.
+ * scope is discarded rather than defaulted. Acceptance is decided by the gating modes alone: every judged
+ * mode is recorded, but only a gating mode's severity can reject. The threshold is applied here rather
+ * than by the model, so a stored decision can be re-derived under a different threshold or gating set via
+ * {@link #decide}.
  */
 @Service
 public class McqFilterService {
@@ -76,6 +79,8 @@ public class McqFilterService {
      * @param request   the request-fit reference values; may be {@code null} for a scope that does not
      *                  judge against a request
      * @param threshold   minimum aggregate score in [0, 1] required for acceptance
+     * @param gatingModes modes whose severity decides acceptance; {@code null} or empty gates on every
+     *                    judged mode. Modes outside the scope are ignored
      * @param model       provider model name, sent with the request
      * @param temperature sampling temperature
      * @param maxAttempts total attempts including the first
@@ -83,8 +88,8 @@ public class McqFilterService {
      * @return the result, which always carries a {@link CallRecord}
      * @throws IllegalArgumentException if the scope requires grounding or a request context and it is absent
      */
-    public Result evaluate(McqItem item, GroundingContext grounding, FilterScope scope, RequestContext request, double threshold, String model, double temperature,
-            int maxAttempts, ChatClient chatClient) {
+    public Result evaluate(McqItem item, GroundingContext grounding, FilterScope scope, RequestContext request, double threshold, Set<FailureMode> gatingModes, String model,
+            double temperature, int maxAttempts, ChatClient chatClient) {
         if (scope.requiresGrounding() && grounding == null) {
             throw new IllegalArgumentException("Scope " + scope + " judges against grounding, but none was given");
         }
@@ -138,10 +143,38 @@ public class McqFilterService {
             log.warn("Filter judged {} of {} modes in scope {}; discarding incomplete verdict", verdicts.size(), scope.modes().size(), scope);
             return new Result(null, call.withFailureCategory("FILTER_INCOMPLETE_VERDICT"));
         }
-        double worstSeverity = verdicts.values().stream().mapToDouble(ModeVerdict::severity).max().orElse(1);
+        return new Result(decide(verdicts, threshold, gate(scope, gatingModes), model, output.rationale()), call);
+    }
+
+    /**
+     * Derive a decision from judged verdicts, so a stored decision can be recomputed under a different
+     * threshold or gating set without a new model call.
+     *
+     * @param verdicts    every judged mode and its severity
+     * @param threshold   minimum aggregate score in [0, 1] required for acceptance
+     * @param gatingModes modes whose severity decides acceptance; {@code null} or empty gates on all judged
+     *                    modes. The aggregate is {@code 1 - worst severity among these}
+     * @param model       judge model recorded on the decision
+     * @param rationale   the judge's overall rationale
+     * @return the decision
+     */
+    public static FilterDecision decide(Map<FailureMode, ModeVerdict> verdicts, double threshold, Set<FailureMode> gatingModes, String model, String rationale) {
+        Set<FailureMode> gating = gatingModes == null || gatingModes.isEmpty() ? verdicts.keySet() : gatingModes;
+        double worstSeverity = verdicts.entrySet().stream().filter(entry -> gating.contains(entry.getKey())).mapToDouble(entry -> entry.getValue().severity()).max().orElse(0);
         double meanSeverity = verdicts.values().stream().mapToDouble(ModeVerdict::severity).average().orElse(1);
         double aggregate = 1 - worstSeverity;
-        return new Result(new FilterDecision(aggregate >= threshold, aggregate, meanSeverity, verdicts, model, output.rationale()), call);
+        return new FilterDecision(aggregate >= threshold, aggregate, meanSeverity, verdicts, model, rationale);
+    }
+
+    private static Set<FailureMode> gate(FilterScope scope, Set<FailureMode> gatingModes) {
+        if (gatingModes == null || gatingModes.isEmpty()) {
+            return scope.modes();
+        }
+        Set<FailureMode> effective = gatingModes.stream().filter(scope.modes()::contains).collect(java.util.stream.Collectors.toUnmodifiableSet());
+        if (effective.isEmpty()) {
+            throw new IllegalArgumentException("None of the gating modes " + gatingModes + " is judged under scope " + scope + ", so nothing could ever reject");
+        }
+        return effective;
     }
 
     private static Map<FailureMode, ModeVerdict> toVerdicts(List<ModeScore> scores, FilterScope scope) {

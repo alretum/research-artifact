@@ -1,17 +1,12 @@
 spring:
   ai:
     openai:
-      # Embeddings still come from the auto-configured client; chat goes through mcq.models.
-      base-url: ${LOGOS_BASE_URL:https://logos.aet.cit.tum.de/v1}
-      api-key: ${LOGOS_API_KEY}
+      chat:
+        base-url: ${LOGOS_BASE_URL:https://logos.aet.cit.tum.de/v1}
+        api-key: ${LOGOS_API_KEY}
 
 mcq:
-  models:
-    cloud:
-      base-url: ${LOGOS_BASE_URL:https://logos.aet.cit.tum.de/v1}
-      api-key: ${LOGOS_API_KEY}
-      model: ${LOGOS_MODEL}
   generation:
-    backend: cloud
+    model: ${LOGOS_MODEL}
   filter:
-    backend: cloud
+    model: ${LOGOS_MODEL}

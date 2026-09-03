@@ -9,10 +9,13 @@ Higher severity always means a worse question. Never use severity to mean qualit
 
 Judge exactly these five modes, using these names:
 
-- FACTUAL_ERROR — the question, the option marked correct, or the explanation contradicts the lecture material. Severity 0.0 when everything checks out against the material; 1.0 when the option marked correct is simply wrong.
+- FACTUAL_ERROR — the question, the option marked correct, or the explanation is wrong. Severity 0.0 when everything checks out; 1.0 when the option marked correct is simply wrong.
+  Where the question supplies its own self-contained instance — a tableau, a numeric example, a small network, a named exercise whose data is restated — judge that instance on its internal consistency and on the mathematics, not on whether it matches an instance in the material. A constructed example that differs from one in the lecture is not an error. A constructed example whose own numbers contradict each other, or whose marked answer is wrong for the data as given, is.
 - AMBIGUOUS_CORRECT_ANSWER — more than one option could defensibly be correct, or correctness depends on an unstated assumption. Severity 0.0 when exactly one option is defensibly correct.
 - OFF_TOPIC — the question is not answerable from the supplied material, or tests something the material does not cover. Severity 0.0 when it is squarely on topic.
-- NEAR_DUPLICATE — the question merely restates the material rather than testing understanding, for example asking a definition to be recalled verbatim. Severity 0.0 when answering requires genuine reasoning.
+- NEAR_DUPLICATE — answering requires no inference: the reader can reach the answer by locating and copying a phrase rather than using it. Judge the task, not the provenance.
+  That the answer appears in the material is NOT a defect. Every question you review is grounded in the material, so the answer is always present somewhere; penalising that would penalise grounding itself. Reusing a problem instance from the material is likewise not a defect if answering it still takes work.
+  Severity 0.0 when reaching the answer takes at least one step of reasoning, computation or case analysis, even when the underlying fact is stated in the material. Reserve high severity for questions answerable by verbatim recall alone.
 - ILL_FORMED_DISTRACTORS — distractors are implausible, obviously wrong, overlapping, or unequal in length, specificity or style so the answer is guessable from form alone. Severity 0.0 when all options are plausible and comparable.
 
 Rules:

@@ -1,0 +1,57 @@
+# Chat models a run plan may use.
+#
+# Adding a model is an entry here plus a line in a run plan under config/runs/ -- no code change.
+#
+# Two cases, and they differ in effort:
+#
+#   Another model on a backend already listed below (a second Logos model, say) works immediately.
+#   The model name is sent with every request, so one backend serves any number of models.
+#
+#   A model on a NEW backend (Azure, OpenAI) additionally needs a client for that backend. The
+#   registry reports exactly what is missing if you point a configuration at one before it is wired.
+#
+# API keys are named, never written here. The named variable must be set in the environment.
+
+backends:
+
+  # The backend the application is configured against by default. Entries using it need nothing further.
+  logos:
+    base-url: https://logos.aet.cit.tum.de/v1
+    api-key-env: LOGOS_API_KEY
+    default: true
+
+  # Uncomment and set the environment variable to use these. Both are new backends, so see the note above.
+  #
+  # ollama:
+  #   base-url: http://localhost:11434/v1
+  #   api-key-env: OLLAMA_API_KEY      # Ollama ignores the value but the client requires one
+  #
+  # Azure needs more than an entry here: it authenticates with an api-key header rather than a bearer
+  # token, and uses a different URL shape and an API version. The client factory would need to use the
+  # SDK's AzureApiKeyCredential instead of BearerTokenCredential. Untested; expect it to fail as written.
+  #
+  # azure:
+  #   base-url: https://<resource>.openai.azure.com/openai/v1
+  #   api-key-env: AZURE_OPENAI_API_KEY
+
+models:
+
+  gpt-oss-120b:
+    backend: logos
+    # Exactly as the provider reports it in GET /v1/models, and exactly as it is recorded on each call
+    # and priced in pricing.yml.
+    model: openai/gpt-oss-120b
+
+  # A second Logos model: uncomment, set the id, and it is usable in a plan straight away.
+  #
+  # llama-70b:
+  #   backend: logos
+  #   model: <exact id from GET /v1/models>
+  #
+  # gpt-oss-20b:
+  #   backend: ollama
+  #   model: gpt-oss:20b
+  #
+  # gpt-5-mini:
+  #   backend: azure
+  #   model: gpt-5-mini

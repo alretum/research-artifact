@@ -22,13 +22,20 @@ out/
 .DS_Store
 
 # Local config that may hold credentials (Logos / Azure / Pyris tokens).
-# Spring reads src/main/resources/application-local.yml by default, so match any location.
+# Matched in any location. Note these files are profile-specific and are NOT read unless the matching
+# profile is activated -- see README.md section 4. They are ignored because they MAY hold credentials,
+# not because Spring loads them by default.
 **/application-local.yml
 **/application-local.yaml
 **/*-local.yml
 **/*-local.yaml
 *.env
 .env
+# Ollama/Logos credential files. NOTE: the *.env rule above does NOT match ".logos-env",
+# because that name ends in "-env" rather than ".env". Match it explicitly, anywhere in the tree.
+.logos-env
+**/.logos-env
+*-env
 
 # Run artefacts cited in the thesis notes. Kept out of the repository because a run record
 # carries the full prompt text, which embeds verbatim lecture material (see corpus/ above).

@@ -1,4 +1,11 @@
 server:
+  # Loopback by default, because this interface has NO authentication of any kind: exposed, POST /runs
+  # lets anyone spend the model budget and /items serves lecture material that may not be redistributable.
+  #
+  # Spring binds every interface unless told otherwise, so this must be the DEFAULT rather than something
+  # a profile opts into -- a safe setting that depends on remembering a flag is not a safe setting.
+  # Overriding it is a deliberate act; read the note in README.md section 5 first.
+  address: 127.0.0.1
   servlet:
     session:
       # Cookies only: without this, a client that sends no cookie gets a ";jsessionid=" appended to
@@ -8,6 +15,12 @@ server:
 spring:
   main:
     banner-mode: off
+  servlet:
+    multipart:
+      # Lecture PDFs run to several MB each and a whole course to tens of MB. Spring's defaults are 1MB
+      # per file and 10MB per request, which would reject essentially every real upload.
+      max-file-size: 200MB
+      max-request-size: 2GB
   thymeleaf:
     cache: false
   ai:
@@ -15,17 +28,28 @@ spring:
       chat: openai
       embedding: openai
     openai:
-      base-url: http://localhost:11434/v1
-      api-key: ollama
+      # Chat (generation + filtering) runs on Logos GPUs; embedding runs locally (see below).
+      #
+      # These top-level values are the fallback that EVERY spring-ai-openai autoconfiguration reads --
+      # including ones this app never uses, such as audio speech and image. Setting credentials only under
+      # `chat:` and `embedding:` leaves those beans with no credential and the context fails to start with
+      # "At least one credential source must be specified". So the top level carries the chat provider and
+      # `embedding:` overrides it.
+      base-url: ${LOGOS_BASE_URL:https://logos.aet.cit.tum.de/v1}
+      api-key: ${LOGOS_API_KEY:unset}
       microsoft-foundry: false
       timeout: 10m
       chat:
         options:
-          model: gpt-oss:20b
+          model: ${LOGOS_MODEL:openai/gpt-oss-120b}
           temperature: 0.7
+      # Embedding runs locally on CPU via Ollama -- overriding the Logos base-url above. Small enough
+      # that CPU is fine (~137M parameters), and it keeps the corpus off a remote service.
       embedding:
+        base-url: ${EMBEDDING_BASE_URL:http://localhost:11434/v1}
+        api-key: ${EMBEDDING_API_KEY:ollama}
         options:
-          model: nomic-embed-text
+          model: ${EMBEDDING_MODEL:nomic-embed-text}
     retry:
       max-attempts: 1
       backoff:
@@ -40,15 +64,18 @@ mcq:
   extraction-report-path: data/extraction-report.csv
   topic-report-path: data/topics.csv
   retrieval-probe-path: data/retrieval-probe.csv
+  pricing-path: config/pricing.yml
+  model-catalogue-path: config/models.yml
+  benchmark-export-path: data/benchmark
+  run-plan-path: config/runs
   topics-file: ""
   competency-manifest: config/competencies.yml
   language: en
-  difficulty: 50
-  models:
-    local:
-      base-url: http://localhost:11434/v1
-      api-key: ollama
-      model: gpt-oss:20b
+  # A ladder, walked by each topic independently: item 0 of every topic is generated at 20, item 1 at 40,
+  # and so on. A run therefore spans a range of difficulties instead of one level. A ladder of L levels is
+  # only fully covered once each topic holds L items, so --count should be at least L x (number of topics).
+  # A single value (difficulty: 50) still works and makes every item the same.
+  difficulty: [20, 40, 60, 80]
   chunking:
     target-tokens: 500
     max-tokens: 1200
@@ -57,14 +84,27 @@ mcq:
     top-k: 8
     max-grounding-tokens: 6000
   generation:
-    backend: local
+    model: ${LOGOS_MODEL:openai/gpt-oss-120b}
     temperature: 0.7
     max-attempts: 3
   filter:
-    backend: local
+    model: ${LOGOS_MODEL:openai/gpt-oss-120b}
     temperature: 0.2
     max-attempts: 3
     accept-threshold: 0.7
+    # Which failure modes can reject an item. All five are still judged and recorded on every item; these
+    # are the ones that gate acceptance.
+    #
+    # NEAR_DUPLICATE is deliberately absent. Because the aggregate is 1 minus the WORST severity, any mode
+    # listed here can reject on its own, and near-duplicate was rejecting sound questions for resembling
+    # the material -- which for a grounded generator is unavoidable, and for a competency whose declared
+    # taxonomy is REMEMBER is actually correct. The construct it was groping at is measured properly
+    # downstream by the benchmark's cognitive_level metric, against the bloom_intended level we export.
+    gating-modes:
+      - FACTUAL_ERROR
+      - AMBIGUOUS_CORRECT_ANSWER
+      - OFF_TOPIC
+      - ILL_FORMED_DISTRACTORS
   batch:
     database-path: data/run.db
     concurrency: 1
