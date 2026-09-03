@@ -131,6 +131,29 @@ public class RunStore implements AutoCloseable {
     }
 
     /**
+     * Count the items a run already holds for one topic, so newly enqueued indices continue rather than
+     * colliding.
+     *
+     * @param runId           run to inspect
+     * @param configurationId configuration within the run
+     * @param topicKey        topic to count
+     * @return the number of existing rows for that topic
+     */
+    public synchronized int itemCountForTopic(String runId, String configurationId, String topicKey) {
+        try (PreparedStatement statement = connection.prepareStatement("SELECT COUNT(*) FROM item WHERE run_id = ? AND configuration_id = ? AND topic_key = ?")) {
+            statement.setString(1, runId);
+            statement.setString(2, configurationId);
+            statement.setString(3, topicKey);
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next() ? rows.getInt(1) : 0;
+            }
+        }
+        catch (SQLException e) {
+            throw new IllegalStateException("Failed to count items for topic " + topicKey, e);
+        }
+    }
+
+    /**
      * Return rows claimed by a process that is no longer running to their previous stable state.
      *
      * @param runId run to recover

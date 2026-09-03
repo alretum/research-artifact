@@ -8,6 +8,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,6 +51,8 @@ public class BatchRunner {
 
     private final Dependencies dependencies;
 
+    private volatile BooleanSupplier stopRequested = () -> false;
+
     /**
      * Everything the runner needs from the surrounding pipeline.
      *
@@ -81,7 +84,7 @@ public class BatchRunner {
     }
 
     /**
-     * Enqueue work for a run, distributing items across topics in round-robin order.
+     * Enqueue work spread evenly across every available topic.
      * <p>
      * Existing rows are left untouched, so calling this on a resumed run adds only what is missing.
      *
@@ -102,7 +105,45 @@ public class BatchRunner {
     }
 
     /**
-     * Work the run to completion.
+     * Enqueue a fixed number of items for each of the named topics.
+     * <p>
+     * Item indices continue from whatever the run already holds for that topic, so enqueueing twice adds
+     * further items rather than colliding with existing ones.
+     *
+     * @param topicKeys     topics to generate for; each must be known to this runner
+     * @param itemsPerTopic items to add per topic
+     * @return the number of rows newly created
+     * @throws IllegalArgumentException if a topic key is not among the available topics
+     */
+    public int enqueueTopics(List<String> topicKeys, int itemsPerTopic) {
+        List<String> known = dependencies.topicQueries().stream().map(TopicQuery::key).toList();
+        List<String> unknown = topicKeys.stream().filter(key -> !known.contains(key)).toList();
+        if (!unknown.isEmpty()) {
+            throw new IllegalArgumentException("Unknown topics: " + unknown);
+        }
+        List<ItemKey> keys = new ArrayList<>();
+        for (String topicKey : topicKeys) {
+            int offset = store.itemCountForTopic(settings.runId(), settings.configurationId(), topicKey);
+            for (int i = 0; i < itemsPerTopic; i++) {
+                keys.add(new ItemKey(settings.runId(), settings.configurationId(), topicKey, offset + i));
+            }
+        }
+        return store.enqueue(keys);
+    }
+
+    /**
+     * Ask the runner to stop claiming new work.
+     * <p>
+     * Items already claimed run to completion and record their results, so nothing in flight is discarded.
+     *
+     * @param stopRequested consulted before each claim
+     */
+    public void onStopRequested(BooleanSupplier stopRequested) {
+        this.stopRequested = stopRequested;
+    }
+
+    /**
+     * Work the run to completion, or until stopping is requested.
      *
      * @return the number of units of work completed by this invocation
      */
@@ -135,6 +176,10 @@ public class BatchRunner {
 
     private void workUntilDrained(AtomicInteger completed) {
         while (!Thread.currentThread().isInterrupted()) {
+            if (stopRequested.getAsBoolean()) {
+                log.info("Stop requested; no further work will be claimed");
+                return;
+            }
             Optional<Claim> claim = store.claimNext(settings.runId());
             if (claim.isEmpty()) {
                 return;
