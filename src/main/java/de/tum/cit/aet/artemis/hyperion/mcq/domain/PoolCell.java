@@ -32,6 +32,21 @@ public record PoolCell(String courseKey, String competencyKey, Language language
         return courseKey + "|" + competencyKey + "|" + language.code() + "|" + questionType.value() + "|" + difficulty.value();
     }
 
+    /**
+     * Parses a cell back from its {@link #key()}.
+     *
+     * @param key a cell key of the form {@code course|competency|language|type|difficulty}
+     * @return the cell
+     * @throws IllegalArgumentException if the key does not have five segments or a segment is invalid
+     */
+    public static PoolCell fromKey(String key) {
+        String[] parts = key.split("\\|", -1);
+        if (parts.length != 5) {
+            throw new IllegalArgumentException("Cell key must have five segments, got '" + key + "'");
+        }
+        return new PoolCell(parts[0], parts[1], Language.fromCode(parts[2]), QuestionType.fromValue(parts[3]), Difficulty.fromValue(parts[4]));
+    }
+
     private static void requireText(String value, String name) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException("Cell field '" + name + "' must not be blank, got " + value);

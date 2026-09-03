@@ -156,11 +156,12 @@ public class RunStore implements AutoCloseable {
     /**
      * A claimed unit of work.
      *
+     * @param sectionIndex         which subsection grounds a pool item; 0 for items enqueued without one
      * @param generatedItemJson    the stored item, present when the claim is for filtering
      * @param provenanceJson       the stored provenance, present when the claim is for filtering
      */
-    public record Claim(ItemKey key, ItemState state, int difficulty, int generationAttempts, int filterAttempts, String generatedItemJson, String provenanceJson
-            , String callsJson) {
+    public record Claim(ItemKey key, ItemState state, int difficulty, int sectionIndex, int generationAttempts, int filterAttempts, String generatedItemJson,
+            String provenanceJson, String callsJson) {
     }
 
     /**
@@ -246,11 +247,11 @@ public class RunStore implements AutoCloseable {
         int created = 0;
         for (PoolItem item : items) {
             created += execute("""
-                    INSERT OR IGNORE INTO item (run_id, configuration_id, topic_key, item_index, state, updated_at,
+                    INSERT OR IGNORE INTO item (run_id, configuration_id, topic_key, item_index, state, updated_at, difficulty,
                         course_key, competency_key, language, question_type, difficulty_band, section_index, generator_model)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", item.key().runId(), item.key().configurationId(), item.key().topicKey(), item.key().itemIndex(),
-                    ItemState.PENDING.name(), Instant.now().toString(), item.cell().courseKey(), item.cell().competencyKey(), item.cell().language().code(),
-                    item.cell().questionType().value(), item.cell().difficulty().value(), item.sectionIndex(), item.generatorModel());
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", item.key().runId(), item.key().configurationId(), item.key().topicKey(), item.key().itemIndex(),
+                    ItemState.PENDING.name(), Instant.now().toString(), item.cell().difficulty().promptValue(), item.cell().courseKey(), item.cell().competencyKey(),
+                    item.cell().language().code(), item.cell().questionType().value(), item.cell().difficulty().value(), item.sectionIndex(), item.generatorModel());
         }
         return created;
     }
@@ -299,6 +300,68 @@ public class RunStore implements AutoCloseable {
         catch (SQLException e) {
             throw new IllegalStateException("Failed to read verdict for item " + itemRowId, e);
         }
+    }
+
+    /**
+     * Reads the row id of one item, for joining verdicts and attempts to it.
+     *
+     * @param key the item
+     * @return the row id, if the item exists
+     */
+    public synchronized Optional<Long> rowIdOf(ItemKey key) {
+        try (PreparedStatement statement = connection
+                .prepareStatement("SELECT rowid FROM item WHERE run_id = ? AND configuration_id = ? AND topic_key = ? AND item_index = ?")) {
+            statement.setString(1, key.runId());
+            statement.setString(2, key.configurationId());
+            statement.setString(3, key.topicKey());
+            statement.setInt(4, key.itemIndex());
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next() ? Optional.of(rows.getLong(1)) : Optional.empty();
+            }
+        }
+        catch (SQLException e) {
+            throw new IllegalStateException("Failed to read row id of " + key, e);
+        }
+    }
+
+    /**
+     * A generated pool item one judge has not decided on yet.
+     *
+     * @param sectionIndex which subsection grounded the item
+     */
+    public record UnjudgedItem(long id, ItemKey key, String cellKey, int sectionIndex, String itemJson) {
+    }
+
+    /**
+     * Reads generated pool items the given judge has not yet judged under the given scope.
+     *
+     * @param judgeModel the judge
+     * @param scope      the filter scope
+     * @param limit      maximum rows to return
+     * @return unjudged items, oldest first
+     */
+    public synchronized List<UnjudgedItem> itemsMissingVerdict(String judgeModel, String scope, int limit) {
+        List<UnjudgedItem> items = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT i.rowid, i.run_id, i.configuration_id, i.topic_key, i.item_index, COALESCE(i.section_index, 0), i.item_json
+                FROM item i
+                WHERE i.item_json IS NOT NULL AND i.course_key IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM verdict v WHERE v.item_rowid = i.rowid AND v.judge_model = ? AND v.scope = ?)
+                ORDER BY i.rowid LIMIT ?""")) {
+            statement.setString(1, judgeModel);
+            statement.setString(2, scope);
+            statement.setInt(3, limit);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    items.add(new UnjudgedItem(rows.getLong(1), new ItemKey(rows.getString(2), rows.getString(3), rows.getString(4), rows.getInt(5)), rows.getString(4),
+                            rows.getInt(6), rows.getString(7)));
+                }
+            }
+        }
+        catch (SQLException e) {
+            throw new IllegalStateException("Failed to read items missing a verdict of " + judgeModel, e);
+        }
+        return items;
     }
 
     /**
@@ -422,7 +485,8 @@ public class RunStore implements AutoCloseable {
             return Optional.empty();
         }
         try (PreparedStatement statement = connection.prepareStatement("""
-                SELECT configuration_id, topic_key, item_index, difficulty, generation_attempts, filter_attempts, item_json, provenance_json, calls_json
+                SELECT configuration_id, topic_key, item_index, difficulty, COALESCE(section_index, 0), generation_attempts, filter_attempts, item_json, provenance_json,
+                    calls_json
                 FROM item WHERE run_id = ? AND state = ? ORDER BY updated_at DESC LIMIT 1""")) {
             statement.setString(1, runId);
             statement.setString(2, to.name());
@@ -431,7 +495,7 @@ public class RunStore implements AutoCloseable {
                     return Optional.empty();
                 }
                 ItemKey key = new ItemKey(runId, rows.getString(1), rows.getString(2), rows.getInt(3));
-                return Optional.of(new Claim(key, to, rows.getInt(4), rows.getInt(5), rows.getInt(6), rows.getString(7), rows.getString(8), rows.getString(9)));
+                return Optional.of(new Claim(key, to, rows.getInt(4), rows.getInt(5), rows.getInt(6), rows.getInt(7), rows.getString(8), rows.getString(9), rows.getString(10)));
             }
         }
         catch (SQLException e) {
