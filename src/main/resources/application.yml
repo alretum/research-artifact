@@ -1,7 +1,15 @@
+server:
+  servlet:
+    session:
+      # Cookies only: without this, a client that sends no cookie gets a ";jsessionid=" appended to
+      # redirect URLs, which Spring then rejects with a 404.
+      tracking-modes: cookie
+
 spring:
   main:
-    web-application-type: none
     banner-mode: off
+  thymeleaf:
+    cache: false
   ai:
     model:
       chat: openai

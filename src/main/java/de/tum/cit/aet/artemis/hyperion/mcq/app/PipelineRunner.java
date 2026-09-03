@@ -81,9 +81,11 @@ public class PipelineRunner implements ApplicationRunner {
 
     private final FailureReporter failures;
 
+    private final RunStore store;
+
     public PipelineRunner(PipelineProperties properties, EmbeddingModel embeddingModel, ChatClient.Builder chatClientBuilder, GroundingAssemblyService groundingAssembly,
             McqGenerationService generation, McqFilterService filter, RunLogWriter runLog, ExtractionReportWriter reportWriter, CompositionReporter compositionReporter,
-            RunExporter exporter, ThresholdSweep sweep, FailureReporter failures) {
+            RunExporter exporter, ThresholdSweep sweep, FailureReporter failures, RunStore store) {
         this.properties = properties;
         this.embeddingModel = embeddingModel;
         this.chatClientBuilder = chatClientBuilder;
@@ -96,6 +98,7 @@ public class PipelineRunner implements ApplicationRunner {
         this.exporter = exporter;
         this.sweep = sweep;
         this.failures = failures;
+        this.store = store;
     }
 
     private ApplicationArguments arguments;
@@ -103,6 +106,11 @@ public class PipelineRunner implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         this.arguments = args;
+        if (!args.containsOption("count") && !args.containsOption("resume") && !args.containsOption("report") && !args.containsOption("sweep")
+                && !args.containsOption("retrieval-only")) {
+            log.info("No command argument given; the web interface is available at http://localhost:8080");
+            return;
+        }
         if (args.containsOption("report")) {
             compositionReporter.report(Path.of(properties.runLogPath()));
             return;
@@ -128,25 +136,23 @@ public class PipelineRunner implements ApplicationRunner {
         }
 
         ChatClient chatClient = chatClientBuilder.build();
-        try (RunStore store = new RunStore(java.nio.file.Path.of(properties.batch().databasePath()))) {
-            store.registerRun(runId, properties.configurationId(), manifest(indexed));
+        store.registerRun(runId, properties.configurationId(), manifest(indexed));
 
-            BatchRunner batch = new BatchRunner(store, batchSettings(runId), new BatchRunner.Dependencies(indexed.source(), groundingAssembly, generation, filter, chatClient,
-                    topics.stream().map(topic -> new TopicQuery(topic.key(), topic.query())).toList()));
+        BatchRunner batch = new BatchRunner(store, batchSettings(runId), new BatchRunner.Dependencies(indexed.source(), groundingAssembly, generation, filter, chatClient,
+                topics.stream().map(topic -> new TopicQuery(topic.key(), topic.query())).toList()));
 
-            int created = batch.enqueue(count);
-            log.info("Run {}: {} items enqueued ({} new), states {}", runId, count, created, store.stateCounts(runId));
+        int created = batch.enqueue(count);
+        log.info("Run {}: {} items enqueued ({} new), states {}", runId, count, created, store.stateCounts(runId));
 
-            long start = System.nanoTime();
-            int processed = batch.run();
-            long seconds = (System.nanoTime() - start) / 1_000_000_000;
+        long start = System.nanoTime();
+        int processed = batch.run();
+        long seconds = (System.nanoTime() - start) / 1_000_000_000;
 
-            log.info("=== run {} ===", runId);
-            log.info("processed {} units in {} s, states now {}", processed, seconds, store.stateCounts(runId));
-            log.info("complete: {}", store.isComplete(runId));
-            exporter.export(store, runId, Path.of(properties.runLogPath()), Path.of(properties.itemsMarkdownPath()));
-            failures.report(store, runId);
-        }
+        log.info("=== run {} ===", runId);
+        log.info("processed {} units in {} s, states now {}", processed, seconds, store.stateCounts(runId));
+        log.info("complete: {}", store.isComplete(runId));
+        exporter.export(store, runId, Path.of(properties.runLogPath()), Path.of(properties.itemsMarkdownPath()));
+        failures.report(store, runId);
     }
 
 
