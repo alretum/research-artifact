@@ -17,6 +17,8 @@ import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.PoolCell;
+
 /**
  * Durable state for a generation run, held in a single SQLite file.
  * <p>
@@ -85,6 +87,49 @@ public class RunStore implements AutoCloseable {
                         answered_at TEXT NOT NULL
                     )""");
             statement.executeUpdate("CREATE INDEX IF NOT EXISTS attempt_by_item ON attempt (item_rowid)");
+            statement.executeUpdate("""
+                    CREATE TABLE IF NOT EXISTS verdict (
+                        item_rowid INTEGER NOT NULL,
+                        judge_model TEXT NOT NULL,
+                        scope TEXT NOT NULL,
+                        accepted INTEGER NOT NULL,
+                        decision_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        PRIMARY KEY (item_rowid, judge_model, scope)
+                    )""");
+            statement.executeUpdate("""
+                    CREATE TABLE IF NOT EXISTS document (
+                        course_key TEXT NOT NULL,
+                        document TEXT NOT NULL,
+                        content_hash TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY (course_key, document)
+                    )""");
+        }
+        addColumnIfMissing("item", "course_key", "TEXT");
+        addColumnIfMissing("item", "competency_key", "TEXT");
+        addColumnIfMissing("item", "language", "TEXT");
+        addColumnIfMissing("item", "question_type", "TEXT");
+        addColumnIfMissing("item", "difficulty", "TEXT");
+        addColumnIfMissing("item", "section_index", "INTEGER");
+        addColumnIfMissing("item", "generator_model", "TEXT");
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("CREATE INDEX IF NOT EXISTS pool_lookup ON item (course_key, competency_key, language, question_type, difficulty)");
+        }
+    }
+
+    private void addColumnIfMissing(String table, String column, String type) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?")) {
+            statement.setString(1, table);
+            statement.setString(2, column);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (rows.next() && rows.getInt(1) > 0) {
+                    return;
+                }
+            }
+        }
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("ALTER TABLE " + table + " ADD COLUMN " + column + " " + type);
         }
     }
 
@@ -160,6 +205,165 @@ public class RunStore implements AutoCloseable {
         catch (SQLException e) {
             throw new IllegalStateException("Failed to count items for topic " + topicKey, e);
         }
+    }
+
+    /**
+     * One intended pool item.
+     *
+     * @param sectionIndex which of the competency's subsections grounds this item
+     */
+    public record PoolItem(ItemKey key, PoolCell cell, int sectionIndex, String generatorModel) {
+    }
+
+    /**
+     * Enqueue pool items, labelling each row with its cell so retrieval can match on the labels in SQL.
+     * <p>
+     * Existing rows are left untouched, so enqueueing an unchanged plan on a resumed run creates nothing.
+     *
+     * @param items the items to create
+     * @return the number of rows newly created
+     */
+    public synchronized int enqueuePool(List<PoolItem> items) {
+        int created = 0;
+        for (PoolItem item : items) {
+            created += execute("""
+                    INSERT OR IGNORE INTO item (run_id, configuration_id, topic_key, item_index, state, updated_at,
+                        course_key, competency_key, language, question_type, difficulty, section_index, generator_model)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", item.key().runId(), item.key().configurationId(), item.key().topicKey(), item.key().itemIndex(),
+                    ItemState.PENDING.name(), Instant.now().toString(), item.cell().courseKey(), item.cell().competencyKey(), item.cell().language().code(),
+                    item.cell().questionType().value(), item.cell().difficulty().value(), item.sectionIndex(), item.generatorModel());
+        }
+        return created;
+    }
+
+    /**
+     * One judge's decision about one item under one scope.
+     */
+    public record Verdict(long itemRowId, String judgeModel, String scope, boolean accepted, String decisionJson) {
+    }
+
+    /**
+     * Record a judge's decision about an item, replacing any earlier decision by the same judge under the
+     * same scope.
+     *
+     * @param itemRowId    the judged item
+     * @param judgeModel   the model that judged
+     * @param scope        the filter scope the decision was made under
+     * @param accepted     the decision
+     * @param decisionJson the serialised {@code FilterDecision}
+     */
+    public synchronized void recordVerdict(long itemRowId, String judgeModel, String scope, boolean accepted, String decisionJson) {
+        execute("INSERT OR REPLACE INTO verdict (item_rowid, judge_model, scope, accepted, decision_json, created_at) VALUES (?, ?, ?, ?, ?, ?)", itemRowId, judgeModel, scope,
+                accepted ? 1 : 0, decisionJson, Instant.now().toString());
+    }
+
+    /**
+     * Reads one judge's decision about an item.
+     *
+     * @param itemRowId  the item
+     * @param judgeModel the judge
+     * @param scope      the filter scope
+     * @return the decision, if that judge has made one under that scope
+     */
+    public synchronized Optional<Verdict> verdict(long itemRowId, String judgeModel, String scope) {
+        try (PreparedStatement statement = connection.prepareStatement("SELECT accepted, decision_json FROM verdict WHERE item_rowid = ? AND judge_model = ? AND scope = ?")) {
+            statement.setLong(1, itemRowId);
+            statement.setString(2, judgeModel);
+            statement.setString(3, scope);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    return Optional.empty();
+                }
+                return Optional.of(new Verdict(itemRowId, judgeModel, scope, rows.getInt(1) != 0, rows.getString(2)));
+            }
+        }
+        catch (SQLException e) {
+            throw new IllegalStateException("Failed to read verdict for item " + itemRowId, e);
+        }
+    }
+
+    /**
+     * One pooled question available for selection.
+     */
+    public record PoolCandidate(long id, ItemKey key, int sectionIndex, String itemJson, String provenanceJson, String decisionJson) {
+    }
+
+    /**
+     * Reads the generated questions of one cell that the given judge accepted.
+     * <p>
+     * With {@code asOf} given, only items last updated at or before that instant are returned, so a request
+     * can be answered from the pool as it stood at that point in time.
+     *
+     * @param cell       the cell to read
+     * @param judgeModel judge whose acceptance counts
+     * @param asOf       ISO-8601 instant, or {@code null} for the current pool
+     * @return accepted candidates, oldest first
+     */
+    public synchronized List<PoolCandidate> poolCandidates(PoolCell cell, String judgeModel, String asOf) {
+        List<PoolCandidate> candidates = new ArrayList<>();
+        String sql = """
+                SELECT i.rowid, i.run_id, i.configuration_id, i.topic_key, i.item_index, i.section_index, i.item_json, i.provenance_json, v.decision_json
+                FROM item i JOIN verdict v ON v.item_rowid = i.rowid
+                WHERE i.course_key = ? AND i.competency_key = ? AND i.language = ? AND i.question_type = ? AND i.difficulty = ?
+                  AND i.item_json IS NOT NULL AND v.judge_model = ? AND v.scope = ? AND v.accepted = 1
+                """ + (asOf == null ? "" : " AND i.updated_at <= ?") + " ORDER BY i.rowid";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, cell.courseKey());
+            statement.setString(2, cell.competencyKey());
+            statement.setString(3, cell.language().code());
+            statement.setString(4, cell.questionType().value());
+            statement.setString(5, cell.difficulty().value());
+            statement.setString(6, judgeModel);
+            statement.setString(7, "GENERAL");
+            if (asOf != null) {
+                statement.setString(8, asOf);
+            }
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    candidates.add(new PoolCandidate(rows.getLong(1), new ItemKey(rows.getString(2), rows.getString(3), rows.getString(4), rows.getInt(5)), rows.getInt(6),
+                            rows.getString(7), rows.getString(8), rows.getString(9)));
+                }
+            }
+        }
+        catch (SQLException e) {
+            throw new IllegalStateException("Failed to read pool candidates for cell " + cell.key(), e);
+        }
+        return candidates;
+    }
+
+    /**
+     * Reads the recorded content hash of every document of a course.
+     *
+     * @param courseKey the course
+     * @return document path to content hash
+     */
+    public synchronized Map<String, String> documentHashes(String courseKey) {
+        Map<String, String> hashes = new LinkedHashMap<>();
+        try (PreparedStatement statement = connection.prepareStatement("SELECT document, content_hash FROM document WHERE course_key = ? ORDER BY document")) {
+            statement.setString(1, courseKey);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    hashes.put(rows.getString(1), rows.getString(2));
+                }
+            }
+        }
+        catch (SQLException e) {
+            throw new IllegalStateException("Failed to read document hashes for course " + courseKey, e);
+        }
+        return hashes;
+    }
+
+    /**
+     * Record a document's content hash, replacing any earlier one, so the next pool build can tell changed
+     * and new documents from unchanged ones.
+     *
+     * @param courseKey   the course
+     * @param document    corpus-relative document path
+     * @param contentHash hash of the document's bytes
+     */
+    public synchronized void recordDocumentHash(String courseKey, String document, String contentHash) {
+        execute("INSERT OR REPLACE INTO document (course_key, document, content_hash, updated_at) VALUES (?, ?, ?, ?)", courseKey, document, contentHash,
+                Instant.now().toString());
     }
 
     /**
