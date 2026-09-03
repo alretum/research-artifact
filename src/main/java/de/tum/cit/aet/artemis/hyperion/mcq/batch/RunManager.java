@@ -12,7 +12,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -23,6 +22,7 @@ import de.tum.cit.aet.artemis.hyperion.mcq.filter.McqFilterService;
 import de.tum.cit.aet.artemis.hyperion.mcq.generation.McqGenerationService;
 import de.tum.cit.aet.artemis.hyperion.mcq.grounding.GroundingAssemblyService;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CorpusIndexService;
+import de.tum.cit.aet.artemis.hyperion.mcq.llm.ModelRegistry;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.TopicCatalogue.Topic;
 import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore;
 import de.tum.cit.aet.artemis.hyperion.mcq.telemetry.RunExporter;
@@ -49,7 +49,7 @@ public class RunManager {
 
     private final McqFilterService filter;
 
-    private final ChatClient.Builder chatClientBuilder;
+    private final ModelRegistry models;
 
     private final RunStore store;
 
@@ -112,13 +112,13 @@ public class RunManager {
     }
 
     public RunManager(PipelineProperties properties, CorpusIndexService corpus, GroundingAssemblyService groundingAssembly, McqGenerationService generation,
-            McqFilterService filter, ChatClient.Builder chatClientBuilder, RunStore store, RunExporter exporter) {
+            McqFilterService filter, ModelRegistry models, RunStore store, RunExporter exporter) {
         this.properties = properties;
         this.corpus = corpus;
         this.groundingAssembly = groundingAssembly;
         this.generation = generation;
         this.filter = filter;
-        this.chatClientBuilder = chatClientBuilder;
+        this.models = models;
         this.store = store;
         this.exporter = exporter;
     }
@@ -247,10 +247,12 @@ public class RunManager {
         var index = corpus.index();
         List<TopicQuery> queries = index.topics().stream().map(topic -> new TopicQuery(topic.key(), topic.query())).toList();
         BatchRunner.Settings settings = new BatchRunner.Settings(runId, properties.configurationId(), properties.retrieval().topK(), properties.retrieval().maxGroundingTokens(),
-                properties.difficulty(), properties.language(), properties.generation().model(), properties.generation().temperature(), properties.generation().maxAttempts(),
-                properties.filter().model(), properties.filter().temperature(), properties.filter().maxAttempts(), properties.filter().acceptThreshold(),
+                properties.difficulty(), properties.language(), models.model(properties.generation().backend()), properties.generation().temperature(),
+                properties.generation().maxAttempts(), models.model(properties.filter().backend()), properties.filter().temperature(), properties.filter().maxAttempts(),
+                properties.filter().acceptThreshold(),
                 properties.batch().maxOutputAttempts(), concurrency == null ? properties.batch().concurrency() : concurrency);
-        return new BatchRunner(store, settings, new BatchRunner.Dependencies(index.source(), groundingAssembly, generation, filter, chatClientBuilder.build(), queries));
+        return new BatchRunner(store, settings, new BatchRunner.Dependencies(index.source(), groundingAssembly, generation, filter,
+                models.client(properties.generation().backend()), models.client(properties.filter().backend()), queries));
     }
 
     private String manifest() {

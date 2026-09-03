@@ -44,6 +44,11 @@ mcq:
   competency-manifest: config/competencies.yml
   language: en
   difficulty: 50
+  models:
+    local:
+      base-url: http://localhost:11434/v1
+      api-key: ollama
+      model: gpt-oss:20b
   chunking:
     target-tokens: 500
     max-tokens: 1200
@@ -52,11 +57,11 @@ mcq:
     top-k: 8
     max-grounding-tokens: 6000
   generation:
-    model: gpt-oss:20b
+    backend: local
     temperature: 0.7
     max-attempts: 3
   filter:
-    model: gpt-oss:20b
+    backend: local
     temperature: 0.2
     max-attempts: 3
     accept-threshold: 0.7

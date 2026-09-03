@@ -9,7 +9,6 @@ import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -29,6 +28,7 @@ import de.tum.cit.aet.artemis.hyperion.mcq.filter.McqFilterService;
 import de.tum.cit.aet.artemis.hyperion.mcq.generation.McqGenerationService;
 import de.tum.cit.aet.artemis.hyperion.mcq.grounding.GroundingAssemblyService;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyManifest;
+import de.tum.cit.aet.artemis.hyperion.mcq.llm.ModelRegistry;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CorpusLoader;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.ExtractionReportWriter;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.PageChunker;
@@ -61,7 +61,7 @@ public class PipelineRunner implements ApplicationRunner {
 
     private final EmbeddingModel embeddingModel;
 
-    private final ChatClient.Builder chatClientBuilder;
+    private final ModelRegistry models;
 
     private final GroundingAssemblyService groundingAssembly;
 
@@ -83,12 +83,12 @@ public class PipelineRunner implements ApplicationRunner {
 
     private final RunStore store;
 
-    public PipelineRunner(PipelineProperties properties, EmbeddingModel embeddingModel, ChatClient.Builder chatClientBuilder, GroundingAssemblyService groundingAssembly,
+    public PipelineRunner(PipelineProperties properties, EmbeddingModel embeddingModel, ModelRegistry models, GroundingAssemblyService groundingAssembly,
             McqGenerationService generation, McqFilterService filter, RunLogWriter runLog, ExtractionReportWriter reportWriter, CompositionReporter compositionReporter,
             RunExporter exporter, ThresholdSweep sweep, FailureReporter failures, RunStore store) {
         this.properties = properties;
         this.embeddingModel = embeddingModel;
-        this.chatClientBuilder = chatClientBuilder;
+        this.models = models;
         this.groundingAssembly = groundingAssembly;
         this.generation = generation;
         this.filter = filter;
@@ -135,11 +135,11 @@ public class PipelineRunner implements ApplicationRunner {
             return;
         }
 
-        ChatClient chatClient = chatClientBuilder.build();
         store.registerRun(runId, properties.configurationId(), manifest(indexed));
 
-        BatchRunner batch = new BatchRunner(store, batchSettings(runId), new BatchRunner.Dependencies(indexed.source(), groundingAssembly, generation, filter, chatClient,
-                topics.stream().map(topic -> new TopicQuery(topic.key(), topic.query())).toList()));
+        BatchRunner batch = new BatchRunner(store, batchSettings(runId),
+                new BatchRunner.Dependencies(indexed.source(), groundingAssembly, generation, filter, models.client(properties.generation().backend()),
+                        models.client(properties.filter().backend()), topics.stream().map(topic -> new TopicQuery(topic.key(), topic.query())).toList()));
 
         int created = batch.enqueue(count);
         log.info("Run {}: {} items enqueued ({} new), states {}", runId, count, created, store.stateCounts(runId));
@@ -170,8 +170,9 @@ public class PipelineRunner implements ApplicationRunner {
 
     private BatchRunner.Settings batchSettings(String runId) {
         return new BatchRunner.Settings(runId, properties.configurationId(), properties.retrieval().topK(), properties.retrieval().maxGroundingTokens(), properties.difficulty(),
-                properties.language(), properties.generation().model(), properties.generation().temperature(), properties.generation().maxAttempts(), properties.filter().model(),
-                properties.filter().temperature(), properties.filter().maxAttempts(), properties.filter().acceptThreshold(), properties.batch().maxOutputAttempts(),
+                properties.language(), models.model(properties.generation().backend()), properties.generation().temperature(), properties.generation().maxAttempts(),
+                models.model(properties.filter().backend()), properties.filter().temperature(), properties.filter().maxAttempts(), properties.filter().acceptThreshold(),
+                properties.batch().maxOutputAttempts(),
                 intArgOrDefault("concurrency", properties.batch().concurrency()));
     }
 

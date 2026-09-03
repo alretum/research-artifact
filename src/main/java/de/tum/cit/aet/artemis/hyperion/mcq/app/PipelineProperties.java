@@ -1,11 +1,14 @@
 package de.tum.cit.aet.artemis.hyperion.mcq.app;
 
+import java.util.Map;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -26,13 +29,24 @@ import org.springframework.validation.annotation.Validated;
  * @param competencyManifest   optional competency manifest; takes precedence over topicsFile and folder names
  * @param language             ISO 639-1 language code for generated questions
  * @param difficulty           target difficulty from 0 to 100
+ * @param models               model backends, keyed by the name a configuration refers to them by
  */
 @Validated
 @ConfigurationProperties(prefix = "mcq")
 public record PipelineProperties(@NotBlank String corpusPath, @NotBlank String runLogPath, @NotBlank String itemsMarkdownPath, @NotBlank String extractionReportPath,
         @NotBlank String topicReportPath, @NotBlank String retrievalProbePath, String topicsFile, String competencyManifest, @NotBlank String language,
-        @Min(0) @Max(100) int difficulty, @NotNull @Valid Chunking chunking, @NotNull @Valid Retrieval retrieval, @NotNull @Valid Generation generation,
-        @NotNull @Valid Filter filter, @NotNull @Valid Batch batch) {
+        @Min(0) @Max(100) int difficulty, @NotEmpty Map<String, @Valid Backend> models, @NotNull @Valid Chunking chunking, @NotNull @Valid Retrieval retrieval,
+        @NotNull @Valid Generation generation, @NotNull @Valid Filter filter, @NotNull @Valid Batch batch) {
+
+    /**
+     * One OpenAI-compatible endpoint and the model served from it.
+     *
+     * @param baseUrl endpoint root, including the version segment
+     * @param apiKey  bearer token; a placeholder where the endpoint ignores it
+     * @param model   provider model name, sent with every request
+     */
+    public record Backend(@NotBlank String baseUrl, @NotBlank String apiKey, @NotBlank String model) {
+    }
 
     /**
      * @param targetTokens pages are merged until this estimated token count is reached
@@ -50,20 +64,20 @@ public record PipelineProperties(@NotBlank String corpusPath, @NotBlank String r
     }
 
     /**
-     * @param model       provider model name used for generation, sent with each request
+     * @param backend     key into {@code models} naming the backend that generates
      * @param temperature sampling temperature
      * @param maxAttempts total attempts per item including the first
      */
-    public record Generation(@NotBlank String model, @DecimalMin("0.0") @DecimalMax("2.0") double temperature, @Min(1) @Max(10) int maxAttempts) {
+    public record Generation(@NotBlank String backend, @DecimalMin("0.0") @DecimalMax("2.0") double temperature, @Min(1) @Max(10) int maxAttempts) {
     }
 
     /**
-     * @param model           provider model name used for filtering, sent with each request
+     * @param backend         key into {@code models} naming the backend that filters
      * @param temperature     sampling temperature
      * @param maxAttempts     total attempts per item including the first
      * @param acceptThreshold minimum aggregate score in [0, 1] required to accept an item
      */
-    public record Filter(@NotBlank String model, @DecimalMin("0.0") @DecimalMax("2.0") double temperature, @Min(1) @Max(10) int maxAttempts,
+    public record Filter(@NotBlank String backend, @DecimalMin("0.0") @DecimalMax("2.0") double temperature, @Min(1) @Max(10) int maxAttempts,
             @DecimalMin("0.0") @DecimalMax("1.0") double acceptThreshold) {
     }
 
@@ -76,9 +90,15 @@ public record PipelineProperties(@NotBlank String corpusPath, @NotBlank String r
     }
 
     /**
-     * @return the identifier distinguishing this generator and filter pairing in persisted records
+     * The identifier distinguishing this generator and filter pairing in persisted records.
+     * <p>
+     * Names backend keys rather than provider model names, so the identifier stays stable when a backend's
+     * model is upgraded. The resolved model names are recorded in the run manifest and in every
+     * {@code CallRecord}.
+     *
+     * @return the configuration identifier
      */
     public String configurationId() {
-        return generation.model() + "|" + filter.model();
+        return generation.backend() + "|" + filter.backend();
     }
 }
