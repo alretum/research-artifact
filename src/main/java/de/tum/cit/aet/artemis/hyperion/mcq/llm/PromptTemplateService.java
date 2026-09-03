@@ -14,10 +14,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StreamUtils;
 
 /**
- * Renders {@code {{placeholder}}} templates from the classpath.
+ * Renders {@code {{placeholder}}} templates loaded from the classpath.
  * <p>
- * Copied from Artemis's {@code HyperionPromptTemplateService} (the only code borrowed from Artemis,
- * BUILD.md §0) so prompt files move between the two projects unchanged.
+ * Each template is read once and cached for the lifetime of this bean, so edits to a {@code .st} file
+ * take effect only after a restart. A placeholder with no matching variable is left verbatim in the
+ * output and logged at WARN.
  */
 @Service
 public class PromptTemplateService {

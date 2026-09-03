@@ -41,6 +41,8 @@ public record CompetencyManifest(Course course, List<Competency> competencies) {
     }
 
     /**
+     * A reference to one corpus document.
+     *
      * @param document corpus-relative path of the linked document
      * @param weight   link weight, mirroring {@code CompetencyLearningObjectLink.weight}
      */
@@ -48,12 +50,16 @@ public record CompetencyManifest(Course course, List<Competency> competencies) {
     }
 
     /**
+     * A typed edge from this competency to another.
+     *
      * @param target key of the competency at the head of the relation
      */
     public record Relation(RelationType type, String target) {
     }
 
     /**
+     * One declared competency.
+     *
      * @param key           stable local identifier, referenced by {@link Relation#target}
      * @param query         retrieval query override; when absent, title and description are used
      * @param lectureUnits  documents teaching this competency
@@ -174,7 +180,8 @@ public record CompetencyManifest(Course course, List<Competency> competencies) {
         for (Competency competency : competencies) {
             for (Relation relation : competency.relations()) {
                 if (!keys.contains(relation.target())) {
-                    throw new IllegalArgumentException("Competency '" + competency.key() + "' has a " + relation.type() + " relation to unknown target '" + relation.target() + "'");
+                    throw new IllegalArgumentException(
+                            "Competency '" + competency.key() + "' has a " + relation.type() + " relation to unknown target '" + relation.target() + "'");
                 }
             }
         }

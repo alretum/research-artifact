@@ -49,6 +49,8 @@ public record PipelineProperties(@NotBlank String corpusPath, @NotBlank String r
     }
 
     /**
+     * Page-aligned chunking parameters.
+     *
      * @param targetTokens pages are merged until this estimated token count is reached
      * @param maxTokens    a single page at or above this size becomes its own chunk
      * @param indexPath    file the embedded index is cached in, so an unchanged corpus is not re-embedded
@@ -57,6 +59,8 @@ public record PipelineProperties(@NotBlank String corpusPath, @NotBlank String r
     }
 
     /**
+     * Bounds on what retrieval may hand the prompt.
+     *
      * @param topK               maximum number of snippets retrieved per question
      * @param maxGroundingTokens upper bound on the assembled grounding block
      */
@@ -64,6 +68,8 @@ public record PipelineProperties(@NotBlank String corpusPath, @NotBlank String r
     }
 
     /**
+     * Generation-stage parameters.
+     *
      * @param backend     key into {@code models} naming the backend that generates
      * @param temperature sampling temperature
      * @param maxAttempts total attempts per item including the first
@@ -72,6 +78,8 @@ public record PipelineProperties(@NotBlank String corpusPath, @NotBlank String r
     }
 
     /**
+     * Filter-stage parameters.
+     *
      * @param backend         key into {@code models} naming the backend that filters
      * @param temperature     sampling temperature
      * @param maxAttempts     total attempts per item including the first
@@ -82,6 +90,8 @@ public record PipelineProperties(@NotBlank String corpusPath, @NotBlank String r
     }
 
     /**
+     * Durable execution parameters.
+     *
      * @param databasePath       SQLite file holding durable run and item state
      * @param concurrency        workers claiming items in parallel; 1 keeps per-item timings attributable
      * @param maxOutputAttempts  attempts allowed per stage before an item fails permanently

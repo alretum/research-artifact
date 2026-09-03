@@ -29,6 +29,8 @@ public class FailureReporter {
     private static final Logger log = LoggerFactory.getLogger(FailureReporter.class);
 
     /**
+     * Failure counts for one run.
+     *
      * @param attemptsByCategory failed attempts per category, across items that eventually succeeded
      * @param permanentByCategory items that exhausted their attempts, per final category
      * @param totalCalls          every recorded call of the run, successful or not

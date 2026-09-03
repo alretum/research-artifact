@@ -63,6 +63,8 @@ public class BatchRunner {
     }
 
     /**
+     * A topic and the text used to retrieve grounding for it.
+     *
      * @param key   stable topic identifier recorded on every item
      * @param query text embedded to retrieve grounding
      */
@@ -70,6 +72,8 @@ public class BatchRunner {
     }
 
     /**
+     * Per-run parameters, fixed for the lifetime of the runner.
+     *
      * @param maxOutputAttempts attempts allowed per stage before an item fails permanently
      */
     public record Settings(String runId, String configurationId, int topK, int maxGroundingTokens, int difficulty, String language, String generationModel,

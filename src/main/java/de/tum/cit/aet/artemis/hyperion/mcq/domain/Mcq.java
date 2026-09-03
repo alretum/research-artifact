@@ -7,9 +7,9 @@ import java.util.Map;
 /**
  * Immutable domain types for the MCQ pipeline.
  * <p>
- * {@link McqItem} and {@link AnswerOption} are field-compatible with Artemis's
- * {@code GeneratedQuizQuestionDTO} and {@code GeneratedQuizAnswerOptionDTO}; research-side metadata is
- * held separately in {@link ItemProvenance}.
+ * The component names of {@link McqItem} and {@link AnswerOption} must stay identical to Artemis's
+ * {@code GeneratedQuizQuestionDTO} and {@code GeneratedQuizAnswerOptionDTO}. Research metadata belongs
+ * in {@link ItemProvenance} and must not be added to {@link McqItem}.
  */
 public final class Mcq {
 
@@ -132,7 +132,7 @@ public final class Mcq {
     /** Question types supported by the pipeline. */
     public enum QuestionType {
 
-        SINGLE_CHOICE("single-choice"), MULTIPLE_CHOICE("multiple-choice");
+        SINGLE_CHOICE("single-choice"), MULTIPLE_CHOICE("multiple-choice"), TRUE_FALSE("true-false");
 
         private final String value;
 
@@ -145,6 +145,22 @@ public final class Mcq {
          */
         public String value() {
             return value;
+        }
+
+        /**
+         * Resolves a question type from its case-insensitive wire value.
+         *
+         * @param value serialized question type value, for example {@code single-choice}
+         * @return the matching question type
+         * @throws IllegalArgumentException if the value matches no question type
+         */
+        public static QuestionType fromValue(String value) {
+            for (QuestionType type : values()) {
+                if (type.value.equalsIgnoreCase(value)) {
+                    return type;
+                }
+            }
+            throw new IllegalArgumentException("Unknown question type '" + value + "', expected one of single-choice, multiple-choice, true-false");
         }
     }
 

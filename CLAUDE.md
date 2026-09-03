@@ -71,7 +71,7 @@ Jackson is **not** declared: it arrives transitively as Jackson 3 (`tools.jackso
 
 ```bash
 ./gradlew build                 # compile + test + jar — this is the gate
-./gradlew test                  # tests only (currently NO-SOURCE: there are no tests yet)
+./gradlew test                  # tests only
 ./gradlew test --tests 'PageChunkerTest'
 ./gradlew test --tests 'PageChunkerTest.chunk_startsNewChunkPerDocument'
 ./gradlew compileJava           # fastest "does it still build"
@@ -330,11 +330,10 @@ records outside the source
 Git's guideline puts it bluntly: *"comments invariably tend to stale out when the code they were describing
 changes"*).
 
-**(3) Provenance plus a port argument.** `generation/PromptTemplateService` class Javadoc — **still needs
-fixing** (§10):
+**(3) Provenance plus a port argument.** `llm/PromptTemplateService` class Javadoc, as it once stood:
 
 ```java
-// BEFORE (current)
+// BEFORE
 /**
  * Renders {@code {{placeholder}}} templates from the classpath.
  * <p>
@@ -361,7 +360,7 @@ code is a licensing matter: record it in `README.md`/`NOTICE`, not in Javadoc.
 `domain/Mcq` class Javadoc
 
 ```java
-// BEFORE (current — descriptive, so a future edit can "improve" the field names without noticing)
+// BEFORE — descriptive, so a future edit could "improve" the field names without noticing
 /**
  * Immutable domain types for the MCQ pipeline.
  * <p>
@@ -372,7 +371,7 @@ code is a licensing matter: record it in `README.md`/`NOTICE`, not in Javadoc.
 ```
 
 ```java
-// AFTER (imperative — states the constraint, not its benefit)
+// AFTER — what the file says today (imperative: states the constraint, not its benefit)
 /**
  * Immutable domain types for the MCQ pipeline.
  * <p>
@@ -382,9 +381,9 @@ code is a licensing matter: record it in `README.md`/`NOTICE`, not in Javadoc.
  */
 ```
 
-Contrast `grounding/SnippetSource`, *"The signature mirrors
-`IrisLectureSearchApi.searchLectures(query, limit, courseIds)`."* That constrains nothing and tells an
-implementer nothing the `@param` tags do not already say. **Delete it.**
+Contrast the sentence `grounding/SnippetSource` used to carry, *"The signature mirrors
+`IrisLectureSearchApi.searchLectures(query, limit, courseIds)`."* It constrained nothing and told an
+implementer nothing the `@param` tags did not already say, so it was deleted.
 
 **A positive example, for calibration.** `llm/StructuredOutputs`' class Javadoc is exactly right:
 
@@ -942,7 +941,8 @@ re-report, not a re-run (`BUILD.md` §1, `PLAN.md` §4.7).
 - **Exactly one place constructs a `CallRecord` from a `ChatResponse`**, and it lives in `llm`:
   `CallRecords.from(requestId, Stage.GENERATION, model, startNanos, response)`, with `stage` and `outcome`
   as enums in `domain`. Two copies of a telemetry writer is how the two stages end up reporting
-  incomparable numbers. Currently duplicated — see [§10](#10-open-deviations).
+  incomparable numbers. `llm.ChatCall` is that place; `stage` and `outcome` remain strings — see
+  [§10](#10-open-deviations).
 
 **R6. No provider-specific type crosses into `domain` or `telemetry`.** `ChatClient`, `ChatResponse`,
 `Usage`, `ChatOptions`, `Prompt`, `EmbeddingModel` belong to `llm`, `generation`, `filter`, `retrieval` and
@@ -968,8 +968,7 @@ this a correctness rule rather than a preference:
 
 **R9. Attribution is not optional.** A chunk header carries lecture, unit **and page range**
 (`Mcq.Chunk.header()`), because attribution is what makes an item reviewable (`BUILD.md` §2, habit 4). Every
-rendering path from chunk to prompt must preserve all three. Currently the page range is dropped — see
-[§10](#10-open-deviations).
+rendering path from chunk to prompt must preserve all three.
 
 **R10. When observability is added, use Spring AI's own names.** Spring AI 2.0 emits
 `spring.ai.chat.client` and `gen_ai.client.operation` observations and a `gen_ai.client.token.usage` counter
@@ -981,8 +980,7 @@ convention on top, and leave content logging off.
 
 ## 7. Testing
 
-There are **no tests yet** (`./gradlew test` reports `NO-SOURCE`). Everything below is the standard the first
-test must meet.
+Every test must meet the standard below; the suite runs in a few seconds and boots no Spring context.
 
 **This section fills a documented gap, it does not restate official guidance.** Spring AI 2.0's only testing
 chapter covers *evaluation* against live models
@@ -1025,7 +1023,6 @@ void setup() {
     mocks = MockitoAnnotations.openMocks(this);
     // ChatClient merges request options into the model's options, which must be non-null
     lenient().when(chatModel.getOptions()).thenReturn(ChatOptions.builder().build());
-    lenient().when(chatModel.getDefaultOptions()).thenReturn(ChatOptions.builder().build());
     chatClient = ChatClient.create(chatModel);
     service = new McqGenerationService(new PromptTemplateService());
 }
@@ -1049,8 +1046,8 @@ void generate_returnsItemWhenResponseIsValid() {
 
 Notes that save time:
 
-- Stub **both** `getOptions()` and `getDefaultOptions()`, `lenient()`, or `ChatClient` throws on a null
-  merge.
+- Stub `getOptions()`, `lenient()`, or `ChatClient` throws on a null merge. Do not stub
+  `getDefaultOptions()` — it is deprecated for removal and unused by the merge.
 - Return a **new** `ChatResponse` per invocation via `thenAnswer`, not a shared instance. Vary responses
   across calls with an `AtomicInteger`, as `HyperionConsistencyCheckServiceTest` does.
 - Build metadata into the `ChatResponse` when asserting on token counts; `CallRecord` must tolerate absent
@@ -1226,18 +1223,9 @@ consequence, not by effort.
 
 | # | Rule | Where | What is wrong |
 |---|---|---|---|
-| 2 | **R9** | `GroundingAssemblyService.render`, `Mcq.Snippet`, `EmbeddingSnippetSource.search` | `Chunk.header()` produces `Lecture: X, Unit: Y, Pages n–m`, but `Snippet` has no page fields, so `render` rebuilds a header without the page range. Attribution is lost between retrieval and prompt, defeating `BUILD.md` §2 habit 4. Add `firstPage`/`lastPage` to `Snippet`, or carry `Chunk.header()` through. |
 | 3 | **§5.2** | every `Mcq` record with a collection component: `McqItem.options`, `GroundingContext.snippets`, `ItemProvenance.groundingChunkIds`, `FilterDecision.modeVerdicts`, `RunRecord.calls` | No compact constructors, so each stores the caller's mutable collection — the records are shallowly immutable only. One `List.copyOf` / `Map.copyOf` per component fixes it and adds the null check. Cheap now, and it is the class of bug that shows up as an inexplicable difference between the JSONL row and the in-memory item. |
-| 4 | **R5** | `McqGenerationService.succeeded`/`failed`/`elapsedMs`, `McqFilterService.record`/`elapsedMs` | Usage extraction, elapsed-ms conversion and the `"success"`/`"error"` literals are duplicated verbatim across the two services; `stage` and `outcome` are strings. Extract `llm.CallRecords.from(...)` and make both enums in `domain`. |
-| 5 | **§3.2 cor. 3** | `McqFilterService` imports `generation.PromptTemplateService` | `filter` depends on `generation` for template rendering. Move `PromptTemplateService` into `llm`, alongside `StructuredOutputs`. |
+| 4 | **R5** | `Mcq.CallRecord.stage`, `.outcome`; `ChatCall` | `CallRecord` construction is centralised in `llm.ChatCall`, but `stage` and `outcome` are still free-form strings (`"generation"`, `"success"`). Make both enums in `domain` so a typo cannot split one category into two at report time. |
 | 6 | **§3.2 cor. 4** | `RunLogWriter` imports `llm.StructuredOutputs` | `telemetry` reaches into `llm` for `outputMapper()`, which is a plain `JsonMapper.builder().build()` and has nothing to do with model output. Inject Boot's auto-configured `JsonMapper` bean instead; then `telemetry` has no `llm` edge and `StructuredOutputs` keeps a single purpose. |
-| 7 | **§4.1** | `PromptTemplateService` class Javadoc; `SnippetSource` class Javadoc; `Mcq` class Javadoc; `build.gradle` (`// M0 runs as a CLI, not a server.`); `gradle.properties` line 1 | Four rationale/provenance/milestone comments remain. Replacements for three of them are in §4.3; the `build.gradle` one should be deleted (`application.yml`'s `web-application-type: none` already states it), and `gradle.properties` line 1 reduced to the factual pin: `# Pinned to the versions used by Artemis at origin/develop @ a37d2abb7d.` |
 | 8 | **§8.2** | `McqGenerationService.REQUIRED_OPTION_COUNT`; `CorpusLoader.MIN_PAGE_CHARS` | Two values that change reported results are compiled in: `mcq.item.option-count` and `mcq.ingest.min-page-chars`. (The hard-coded topic strings this entry also used to list are fixed — `TopicCatalogue` now derives topics from the corpus folders and `mcq.topics-file` overrides them.) |
-| 9 | **§5.9** | `McqGenerationService.validate` — `option.text().toLowerCase()` | No locale. Every other site in the repo uses `Locale.ROOT`; this one governs the duplicate-option check. |
-| 10 | **§5.5** | `McqFilterService.parseMode` | `java.util.Optional` written fully qualified in four places; import it. |
-| 11 | **§5.10** | `PipelineProperties`, the record header line | 191 characters, over Artemis's 180 limit. |
-| 12 | **§5.11 rule 2** | `gradle.properties`, `jackson_version=2.20.0` | Orphaned after the Jackson 3 migration: no `build.gradle` entry uses it. Delete it, and move the property into the version block if it ever returns. |
-| 13 | **§8, secrets** | `.gitignore` | Credential patterns cover `config/*-local.yml`, but there is no `config/` directory and configuration lives in `src/main/resources/`. A `src/main/resources/application-local.yml` — the natural place for a Logos key — **would be committed.** Add `src/main/resources/application-*local*.yml`, or move configuration to `config/` and load it via `spring.config.additional-location`. |
-| 14 | **§2, §7** | repo root, `src/test/` | No `checkstyle.xml` / Spotless wiring (`PLAN.md` D20), no `README.md`, no `LICENSE` (`PLAN.md` D23 selects MIT), and no tests at all. |
-| 15 | **§4.4** | `PipelineProperties` (×3), `Mcq` (×3), `PageChunker`, `EmbeddingSnippetSource.size`, `StructuredOutputs.outputMapper` | Nine tag-only Javadoc blocks produce `warning: no main description`. Add a summary fragment or drop the block; note Artemis's Spotless deletes tag-only stubs automatically, so leaving them guarantees churn at port time. |
+| 14 | **§2** | repo root | No `checkstyle.xml` / Spotless wiring (`PLAN.md` D20), no `README.md`, and no `LICENSE` (`PLAN.md` D23 selects MIT). |
 | 16 | **§5.6** | whole tree | JSpecify is not used anywhere. Add `@NullMarked` in `package-info.java` per package and `@Nullable` on the components documented as optional. |

@@ -6,8 +6,6 @@ import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.Snippet;
 
 /**
  * Supplies the lecture-material snippets most relevant to a query.
- * <p>
- * The signature mirrors {@code IrisLectureSearchApi.searchLectures(query, limit, courseIds)}.
  */
 public interface SnippetSource {
 

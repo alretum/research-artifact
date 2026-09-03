@@ -23,6 +23,8 @@ import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyManifest.Competency;
 public final class TopicCatalogue {
 
     /**
+     * One topic derived from a corpus folder.
+     *
      * @param key       the folder name as it appears in the corpus
      * @param query     the folder name with any leading ordinal removed, used as the retrieval query
      * @param chunkCount number of indexed chunks belonging to this topic

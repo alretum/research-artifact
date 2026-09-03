@@ -509,7 +509,8 @@ public class RunStore implements AutoCloseable {
      */
     public synchronized List<Attempt> attempts(long itemRowId) {
         List<Attempt> attempts = new ArrayList<>();
-        try (PreparedStatement statement = connection.prepareStatement("SELECT id, item_rowid, chosen_option, correct, answered_at FROM attempt WHERE item_rowid = ? ORDER BY id")) {
+        try (PreparedStatement statement = connection
+                .prepareStatement("SELECT id, item_rowid, chosen_option, correct, answered_at FROM attempt WHERE item_rowid = ? ORDER BY id")) {
             statement.setLong(1, itemRowId);
             try (ResultSet rows = statement.executeQuery()) {
                 while (rows.next()) {

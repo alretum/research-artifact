@@ -4,6 +4,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -118,17 +119,17 @@ public class McqFilterService {
         return verdicts;
     }
 
-    private static java.util.Optional<FailureMode> parseMode(String raw) {
+    private static Optional<FailureMode> parseMode(String raw) {
         if (raw == null) {
-            return java.util.Optional.empty();
+            return Optional.empty();
         }
         String normalised = raw.trim().toUpperCase(Locale.ROOT).replace(' ', '_').replace('-', '_');
         try {
-            return java.util.Optional.of(FailureMode.valueOf(normalised));
+            return Optional.of(FailureMode.valueOf(normalised));
         }
         catch (IllegalArgumentException e) {
             log.debug("Unknown failure mode in filter output: {}", raw);
-            return java.util.Optional.empty();
+            return Optional.empty();
         }
     }
 
