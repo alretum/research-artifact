@@ -23,6 +23,7 @@ import de.tum.cit.aet.artemis.hyperion.mcq.cost.CostReporter;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.FilterDecision;
 import de.tum.cit.aet.artemis.hyperion.mcq.approach.AgenticApproach;
 import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.SweepExporter;
+import de.tum.cit.aet.artemis.hyperion.mcq.cost.SweepCostReporter;
 import de.tum.cit.aet.artemis.hyperion.mcq.approach.TwoPhaseApproach;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.GenerationRequest;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyCatalogue;
@@ -107,12 +108,14 @@ public class PipelineRunner implements ApplicationRunner {
 
     private final SweepExporter sweepExporter;
 
+    private final SweepCostReporter sweepCost;
+
     private final tools.jackson.databind.json.JsonMapper mapper = de.tum.cit.aet.artemis.hyperion.mcq.llm.StructuredOutputs.outputMapper();
 
     public PipelineRunner(PipelineProperties properties, EmbeddingModel embeddingModel, ChatClient.Builder chatClientBuilder, GroundingAssemblyService groundingAssembly,
             McqGenerationService generation, McqFilterService filter, RunLogWriter runLog, ExtractionReportWriter reportWriter, CompositionReporter compositionReporter
             , RunExporter exporter, ThresholdSweep sweep, FailureReporter failures, CostReporter cost, BenchmarkExporter benchmark, ReadinessService readiness,
-            AgenticApproach agentic, TwoPhaseApproach twoPhase, SweepExporter sweepExporter) {
+            AgenticApproach agentic, TwoPhaseApproach twoPhase, SweepExporter sweepExporter, SweepCostReporter sweepCost) {
         this.properties = properties;
         this.embeddingModel = embeddingModel;
         this.chatClientBuilder = chatClientBuilder;
@@ -131,6 +134,7 @@ public class PipelineRunner implements ApplicationRunner {
         this.agentic = agentic;
         this.twoPhase = twoPhase;
         this.sweepExporter = sweepExporter;
+        this.sweepCost = sweepCost;
     }
 
     private ApplicationArguments arguments;
@@ -141,6 +145,7 @@ public class PipelineRunner implements ApplicationRunner {
         if (!args.containsOption("count") && !args.containsOption("resume") && !args.containsOption("report") && !args.containsOption("sweep")
                 && !args.containsOption("cost") && !args.containsOption("plan") && !args.containsOption("run-plan") && !args.containsOption("export-benchmark")
                 && !args.containsOption("doctor") && !args.containsOption("redecide") && !args.containsOption("experiment") && !args.containsOption("export-experiment")
+                && !args.containsOption("experiment-cost")
                 && !args.containsOption("retrieval-only")) {
             log.info("No command argument given; the web interface is available at http://localhost:8080");
             return;
@@ -169,6 +174,17 @@ public class PipelineRunner implements ApplicationRunner {
         }
         if (args.containsOption("export-experiment")) {
             exportExperiment(Path.of(args.getOptionValues("export-experiment").getFirst()));
+            return;
+        }
+        if (args.containsOption("experiment-cost")) {
+            SweepPlan plan = SweepPlan.load(Path.of(args.getOptionValues("experiment-cost").getFirst()));
+            ModelCatalogue costCatalogue = ModelCatalogue.load(Path.of(properties.modelCataloguePath()));
+            Map<String, String> keyToModel = new java.util.LinkedHashMap<>();
+            plan.configurations().forEach(configuration -> List.of(configuration.generator(), configuration.judge(), configuration.selector())
+                    .forEach(key -> keyToModel.computeIfAbsent(key, k -> costCatalogue.requireModel(k).model())));
+            try (RunStore store = new RunStore(Path.of(properties.batch().databasePath()))) {
+                sweepCost.report(store, plan, keyToModel, Path.of(properties.pricingPath()));
+            }
             return;
         }
         if (args.containsOption("run-plan")) {

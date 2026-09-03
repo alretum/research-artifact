@@ -53,9 +53,9 @@ class RunStorePoolTest {
         generateAll(3);
         long first = idOf(0);
         long second = idOf(1);
-        store.recordVerdict(first, "judge-local", "GENERAL", true, "{}");
-        store.recordVerdict(second, "judge-local", "GENERAL", false, "{}");
-        store.recordVerdict(second, "judge-cloud", "GENERAL", true, "{}");
+        store.recordVerdict(first, "judge-local", "GENERAL", true, "{}", null);
+        store.recordVerdict(second, "judge-local", "GENERAL", false, "{}", null);
+        store.recordVerdict(second, "judge-cloud", "GENERAL", true, "{}", null);
 
         List<PoolCandidate> local = store.poolCandidates(CELL, "judge-local", null);
         List<PoolCandidate> cloud = store.poolCandidates(CELL, "judge-cloud", null);
@@ -71,7 +71,7 @@ class RunStorePoolTest {
         store.enqueuePool(poolItems(2));
         generateAll(2);
         long id = idOf(1);
-        store.recordVerdict(id, "judge-local", "GENERAL", true, "{\"accepted\":true}");
+        store.recordVerdict(id, "judge-local", "GENERAL", true, "{\"accepted\":true}", null);
 
         PoolCandidate candidate = store.poolCandidates(CELL, "judge-local", null).getFirst();
 
@@ -84,7 +84,7 @@ class RunStorePoolTest {
         store.enqueuePool(poolItems(1));
         generateAll(1);
         long id = idOf(0);
-        store.recordVerdict(id, "judge-local", "GENERAL", true, "{}");
+        store.recordVerdict(id, "judge-local", "GENERAL", true, "{}", null);
         PoolCell otherDifficulty = new PoolCell("EIDI", "arrays", Language.DE, QuestionType.SINGLE_CHOICE, Difficulty.HARD);
 
         assertThat(store.poolCandidates(CELL, "judge-local", null)).hasSize(1);
@@ -96,7 +96,7 @@ class RunStorePoolTest {
         store.enqueuePool(poolItems(1));
         generateAll(1);
         long id = idOf(0);
-        store.recordVerdict(id, "judge-local", "GENERAL", true, "{}");
+        store.recordVerdict(id, "judge-local", "GENERAL", true, "{}", null);
 
         assertThat(store.poolCandidates(CELL, "judge-local", "1970-01-01T00:00:00Z")).isEmpty();
         assertThat(store.poolCandidates(CELL, "judge-local", "9999-01-01T00:00:00Z")).hasSize(1);
@@ -107,8 +107,8 @@ class RunStorePoolTest {
         store.enqueuePool(poolItems(1));
         generateAll(1);
         long id = idOf(0);
-        store.recordVerdict(id, "judge-local", "GENERAL", false, "{}");
-        store.recordVerdict(id, "judge-local", "GENERAL", true, "{}");
+        store.recordVerdict(id, "judge-local", "GENERAL", false, "{}", null);
+        store.recordVerdict(id, "judge-local", "GENERAL", true, "{}", null);
 
         assertThat(store.verdict(id, "judge-local", "GENERAL")).hasValueSatisfying(verdict -> assertThat(verdict.accepted()).isTrue());
         assertThat(store.poolCandidates(CELL, "judge-local", null)).hasSize(1);

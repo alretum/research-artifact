@@ -149,7 +149,7 @@ class TwoPhaseApproachTest {
             long id = store.rowIdOf(new ItemKey("run1", "two-phase|gen|judge", CELL.key(), index)).orElseThrow();
             boolean accept = index < accepted;
             store.recordVerdict(id, "judge-model", "GENERAL", accept, "{\"accepted\":" + accept + ",\"aggregateScore\":1.0,\"meanSeverity\":0.0,\"modeVerdicts\":{},"
-                    + "\"filterModel\":\"judge-model\",\"rationale\":\"r\"}");
+                    + "\"filterModel\":\"judge-model\",\"rationale\":\"r\"}", null);
             if (accept) {
                 ids.add(id);
             }

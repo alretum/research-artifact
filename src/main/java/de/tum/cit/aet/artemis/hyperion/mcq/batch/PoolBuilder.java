@@ -181,7 +181,7 @@ public class PoolBuilder {
                 log.warn("Judge {} failed on item {}: {}", judgeModel, unjudged.key(), result.call().failureCategory());
                 continue;
             }
-            store.recordVerdict(unjudged.id(), judgeModel, FilterScope.GENERAL.name(), result.decision().accepted(), write(result.decision()));
+            store.recordVerdict(unjudged.id(), judgeModel, FilterScope.GENERAL.name(), result.decision().accepted(), write(result.decision()), write(List.of(result.call())));
             judged++;
         }
         log.info("Judge {} decided {} of {} unjudged items", judgeModel, judged, missing.size());
@@ -224,7 +224,7 @@ public class PoolBuilder {
         }
         store.recordFiltered(claim.key(), write(result.decision()), write(calls));
         store.rowIdOf(claim.key())
-                .ifPresent(rowId -> store.recordVerdict(rowId, settings.judgeModel(), FilterScope.GENERAL.name(), result.decision().accepted(), write(result.decision())));
+                .ifPresent(rowId -> store.recordVerdict(rowId, settings.judgeModel(), FilterScope.GENERAL.name(), result.decision().accepted(), write(result.decision()), null));
     }
 
     private GroundingContext ground(PoolCell cell, int sectionIndex) {

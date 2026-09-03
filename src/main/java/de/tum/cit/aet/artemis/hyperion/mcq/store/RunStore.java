@@ -132,6 +132,7 @@ public class RunStore implements AutoCloseable {
         addColumnIfMissing("item", "difficulty_band", "TEXT");
         addColumnIfMissing("item", "section_index", "INTEGER");
         addColumnIfMissing("item", "generator_model", "TEXT");
+        addColumnIfMissing("verdict", "calls_json", "TEXT");
         try (Statement statement = connection.createStatement()) {
             statement.executeUpdate("CREATE INDEX IF NOT EXISTS pool_lookup ON item (course_key, competency_key, language, question_type, difficulty_band)");
         }
@@ -285,10 +286,12 @@ public class RunStore implements AutoCloseable {
      * @param scope        the filter scope the decision was made under
      * @param accepted     the decision
      * @param decisionJson the serialised {@code FilterDecision}
+     * @param callsJson    the serialised calls that produced the decision, or {@code null} when they are
+     *                     already recorded on the item
      */
-    public synchronized void recordVerdict(long itemRowId, String judgeModel, String scope, boolean accepted, String decisionJson) {
-        execute("INSERT OR REPLACE INTO verdict (item_rowid, judge_model, scope, accepted, decision_json, created_at) VALUES (?, ?, ?, ?, ?, ?)", itemRowId, judgeModel, scope,
-                accepted ? 1 : 0, decisionJson, Instant.now().toString());
+    public synchronized void recordVerdict(long itemRowId, String judgeModel, String scope, boolean accepted, String decisionJson, String callsJson) {
+        execute("INSERT OR REPLACE INTO verdict (item_rowid, judge_model, scope, accepted, decision_json, calls_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", itemRowId,
+                judgeModel, scope, accepted ? 1 : 0, decisionJson, callsJson, Instant.now().toString());
     }
 
     /**
@@ -376,6 +379,25 @@ public class RunStore implements AutoCloseable {
             throw new IllegalStateException("Failed to read items missing a verdict of " + judgeModel, e);
         }
         return items;
+    }
+
+    /**
+     * Reads the calls persisted with every verdict of the store, for cost reporting.
+     *
+     * @return serialised call lists, one entry per verdict that carries calls
+     */
+    public synchronized List<String> verdictCalls() {
+        List<String> calls = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement("SELECT calls_json FROM verdict WHERE calls_json IS NOT NULL");
+                ResultSet rows = statement.executeQuery()) {
+            while (rows.next()) {
+                calls.add(rows.getString(1));
+            }
+        }
+        catch (SQLException e) {
+            throw new IllegalStateException("Failed to read verdict calls", e);
+        }
+        return calls;
     }
 
     /**
