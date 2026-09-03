@@ -76,6 +76,15 @@ public class RunStore implements AutoCloseable {
                         PRIMARY KEY (run_id, configuration_id, topic_key, item_index)
                     )""");
             statement.executeUpdate("CREATE INDEX IF NOT EXISTS item_by_state ON item (run_id, state)");
+            statement.executeUpdate("""
+                    CREATE TABLE IF NOT EXISTS attempt (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        item_rowid INTEGER NOT NULL,
+                        chosen_option INTEGER NOT NULL,
+                        correct INTEGER NOT NULL,
+                        answered_at TEXT NOT NULL
+                    )""");
+            statement.executeUpdate("CREATE INDEX IF NOT EXISTS attempt_by_item ON attempt (item_rowid)");
         }
     }
 
@@ -376,6 +385,157 @@ public class RunStore implements AutoCloseable {
             throw new IllegalStateException("Failed to list runs", e);
         }
         return ids;
+    }
+
+    /**
+     * A row of the item list, flat enough to render without deserialising the stored question.
+     *
+     * @param id             stable identifier for linking, the underlying row id
+     * @param accepted       {@code null} until the item has been judged
+     * @param aggregateScore {@code null} until the item has been judged
+     */
+    public record ItemSummary(long id, String runId, String topicKey, int itemIndex, ItemState state, String title, Boolean accepted, Double aggregateScore, int attempts) {
+    }
+
+    /** One stored item with everything needed for a detail view. */
+    public record ItemDetail(long id, ItemKey key, ItemState state, String itemJson, String provenanceJson, String decisionJson, String callsJson) {
+    }
+
+    /** One recorded answer. */
+    public record Attempt(long id, long itemRowId, int chosenOption, boolean correct, String answeredAt) {
+    }
+
+    /**
+     * How many answers have been recorded across every item, and how many of them were correct.
+     *
+     * @param recorded total attempts
+     * @param correct  attempts whose chosen option was the correct one
+     */
+    public record AttemptTotals(int recorded, int correct) {
+    }
+
+    /**
+     * List items, most recently updated first.
+     *
+     * @param runId    restrict to one run, or {@code null} for all runs
+     * @param topicKey restrict to one topic, or {@code null} for all topics
+     * @param accepted restrict to accepted or rejected items, or {@code null} for both
+     * @param limit    maximum rows to return
+     * @return matching item summaries
+     */
+    public synchronized List<ItemSummary> browse(String runId, String topicKey, Boolean accepted, int limit) {
+        StringBuilder sql = new StringBuilder("""
+                SELECT i.rowid, i.run_id, i.topic_key, i.item_index, i.state,
+                       json_extract(i.item_json, '$.title'),
+                       json_extract(i.decision_json, '$.accepted'),
+                       json_extract(i.decision_json, '$.aggregateScore'),
+                       (SELECT COUNT(*) FROM attempt a WHERE a.item_rowid = i.rowid)
+                FROM item i WHERE i.item_json IS NOT NULL""");
+        List<Object> parameters = new ArrayList<>();
+        if (runId != null) {
+            sql.append(" AND i.run_id = ?");
+            parameters.add(runId);
+        }
+        if (topicKey != null) {
+            sql.append(" AND i.topic_key = ?");
+            parameters.add(topicKey);
+        }
+        if (accepted != null) {
+            sql.append(" AND json_extract(i.decision_json, '$.accepted') = ?");
+            parameters.add(accepted ? 1 : 0);
+        }
+        sql.append(" ORDER BY i.updated_at DESC LIMIT ?");
+        parameters.add(limit);
+
+        List<ItemSummary> items = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(sql.toString())) {
+            bind(statement, parameters.toArray());
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    Object acceptedValue = rows.getObject(7);
+                    Object scoreValue = rows.getObject(8);
+                    items.add(new ItemSummary(rows.getLong(1), rows.getString(2), rows.getString(3), rows.getInt(4), ItemState.valueOf(rows.getString(5)), rows.getString(6),
+                            acceptedValue == null ? null : ((Number) acceptedValue).intValue() != 0, scoreValue == null ? null : ((Number) scoreValue).doubleValue(),
+                            rows.getInt(9)));
+                }
+            }
+        }
+        catch (SQLException e) {
+            throw new IllegalStateException("Failed to browse items", e);
+        }
+        return items;
+    }
+
+    /**
+     * Reads the item with the given row id.
+     *
+     * @param id row id of the item
+     * @return the item, if it exists and has been generated
+     */
+    public synchronized Optional<ItemDetail> item(long id) {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT run_id, configuration_id, topic_key, item_index, state, item_json, provenance_json, decision_json, calls_json
+                FROM item WHERE rowid = ?""")) {
+            statement.setLong(1, id);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    return Optional.empty();
+                }
+                ItemKey key = new ItemKey(rows.getString(1), rows.getString(2), rows.getString(3), rows.getInt(4));
+                return Optional.of(new ItemDetail(id, key, ItemState.valueOf(rows.getString(5)), rows.getString(6), rows.getString(7), rows.getString(8), rows.getString(9)));
+            }
+        }
+        catch (SQLException e) {
+            throw new IllegalStateException("Failed to read item " + id, e);
+        }
+    }
+
+    /**
+     * Record an answer to an item.
+     *
+     * @param itemRowId    the item answered
+     * @param chosenOption zero-based index of the option chosen
+     * @param correct      whether that option was the correct one
+     */
+    public synchronized void recordAttempt(long itemRowId, int chosenOption, boolean correct) {
+        execute("INSERT INTO attempt (item_rowid, chosen_option, correct, answered_at) VALUES (?, ?, ?, ?)", itemRowId, chosenOption, correct ? 1 : 0, Instant.now().toString());
+    }
+
+    /**
+     * Reads every answer recorded against one item.
+     *
+     * @param itemRowId the item
+     * @return attempts against that item, oldest first
+     */
+    public synchronized List<Attempt> attempts(long itemRowId) {
+        List<Attempt> attempts = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement("SELECT id, item_rowid, chosen_option, correct, answered_at FROM attempt WHERE item_rowid = ? ORDER BY id")) {
+            statement.setLong(1, itemRowId);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    attempts.add(new Attempt(rows.getLong(1), rows.getLong(2), rows.getInt(3), rows.getInt(4) != 0, rows.getString(5)));
+                }
+            }
+        }
+        catch (SQLException e) {
+            throw new IllegalStateException("Failed to read attempts for item " + itemRowId, e);
+        }
+        return attempts;
+    }
+
+    /**
+     * Summarises every recorded answer.
+     *
+     * @return the totals, both zero when nothing has been answered
+     */
+    public synchronized AttemptTotals attemptTotals() {
+        try (PreparedStatement statement = connection.prepareStatement("SELECT COUNT(*), COALESCE(SUM(correct), 0) FROM attempt");
+                ResultSet rows = statement.executeQuery()) {
+            return rows.next() ? new AttemptTotals(rows.getInt(1), rows.getInt(2)) : new AttemptTotals(0, 0);
+        }
+        catch (SQLException e) {
+            throw new IllegalStateException("Failed to summarise attempts", e);
+        }
     }
 
     private Optional<String> queryString(String sql, Object... parameters) {
