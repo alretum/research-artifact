@@ -111,7 +111,7 @@ class McqFilterServiceTest {
 
         var verdicts = evaluate(0.0).decision().modeVerdicts();
 
-        assertThat(verdicts).hasSize(FailureMode.values().length);
+        assertThat(verdicts).hasSize(FilterScope.GENERAL.modes().size());
         assertThat(verdicts.get(FailureMode.FACTUAL_ERROR).severity()).isEqualTo(0.1);
         assertThat(verdicts.get(FailureMode.ILL_FORMED_DISTRACTORS).severity()).isEqualTo(0.5);
     }
@@ -136,8 +136,89 @@ class McqFilterServiceTest {
         assertThat(result.call().outcome()).isEqualTo("error");
     }
 
+    @Test
+    void requestFitScope_acceptsAVerdictCoveringItsThreeModes() {
+        respondWith(fitVerdict(0.0, 0.0, 0.0));
+
+        var result = evaluate(FilterScope.REQUEST_FIT, requestContext(), 0.7);
+
+        assertThat(result.succeeded()).isTrue();
+        assertThat(result.decision().accepted()).isTrue();
+        assertThat(result.decision().modeVerdicts().keySet()).containsExactlyInAnyOrder(FailureMode.COMPETENCY_MISMATCH, FailureMode.DIFFICULTY_MISMATCH,
+                FailureMode.INSTRUCTION_VIOLATION);
+    }
+
+    @Test
+    void requestFitScope_ignoresOutOfScopeModesRatherThanCountingThem() {
+        respondWith("""
+                { "rationale": "mixed", "modes": [
+                  { "mode": "FACTUAL_ERROR", "severity": 0.0, "triggered": false, "justification": "a" },
+                  { "mode": "COMPETENCY_MISMATCH", "severity": 0.0, "triggered": false, "justification": "b" },
+                  { "mode": "DIFFICULTY_MISMATCH", "severity": 0.0, "triggered": false, "justification": "c" } ] }
+                """);
+
+        var result = evaluate(FilterScope.REQUEST_FIT, requestContext(), 0.7);
+
+        assertThat(result.succeeded()).isFalse();
+        assertThat(result.call().failureCategory()).isEqualTo("FILTER_INCOMPLETE_VERDICT");
+    }
+
+    @Test
+    void requestFitScope_rejectsOnAMismatchSeverity() {
+        respondWith(fitVerdict(0.9, 0.0, 0.0));
+
+        var decision = evaluate(FilterScope.REQUEST_FIT, requestContext(), 0.7).decision();
+
+        assertThat(decision.accepted()).isFalse();
+        assertThat(decision.aggregateScore()).isCloseTo(0.1, org.assertj.core.data.Offset.offset(1e-9));
+    }
+
+    @Test
+    void requestFitScope_requiresARequestContext() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> evaluate(FilterScope.REQUEST_FIT, null, 0.7)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("REQUEST_FIT");
+    }
+
+    @Test
+    void combinedScope_requiresAllEightModes() {
+        respondWith(verdict(0.0, 0.0, 0.0, 0.0, 0.0, false));
+
+        var result = evaluate(FilterScope.COMBINED, requestContext(), 0.7);
+
+        assertThat(result.succeeded()).isFalse();
+        assertThat(result.call().failureCategory()).isEqualTo("FILTER_INCOMPLETE_VERDICT");
+    }
+
+    @Test
+    void combinedScope_decidesAcrossItemAndFitModesTogether() {
+        respondWith("""
+                { "rationale": "checked", "modes": [
+                  { "mode": "FACTUAL_ERROR", "severity": 0.0, "triggered": false, "justification": "a" },
+                  { "mode": "AMBIGUOUS_CORRECT_ANSWER", "severity": 0.0, "triggered": false, "justification": "b" },
+                  { "mode": "OFF_TOPIC", "severity": 0.0, "triggered": false, "justification": "c" },
+                  { "mode": "NEAR_DUPLICATE", "severity": 0.0, "triggered": false, "justification": "d" },
+                  { "mode": "ILL_FORMED_DISTRACTORS", "severity": 0.0, "triggered": false, "justification": "e" },
+                  { "mode": "COMPETENCY_MISMATCH", "severity": 0.8, "triggered": true, "justification": "f" },
+                  { "mode": "DIFFICULTY_MISMATCH", "severity": 0.0, "triggered": false, "justification": "g" },
+                  { "mode": "INSTRUCTION_VIOLATION", "severity": 0.0, "triggered": false, "justification": "h" } ] }
+                """);
+
+        var decision = evaluate(FilterScope.COMBINED, requestContext(), 0.7).decision();
+
+        assertThat(decision.modeVerdicts()).hasSize(8);
+        assertThat(decision.accepted()).isFalse();
+    }
+
     private McqFilterService.Result evaluate(double threshold) {
-        return service.evaluate(item(), grounding(), threshold, "test-model", 0.2, 1, chatClient);
+        return evaluate(FilterScope.GENERAL, null, threshold);
+    }
+
+    private McqFilterService.Result evaluate(FilterScope scope, McqFilterService.RequestContext request, double threshold) {
+        return service.evaluate(item(), grounding(), scope, request, threshold, "test-model", 0.2, 1, chatClient);
+    }
+
+    private static McqFilterService.RequestContext requestContext() {
+        return new McqFilterService.RequestContext("Arrays\n- Du kannst Arrays erstellen.", 50, "avoid code snippets");
     }
 
     private void respondWith(String content) {
@@ -153,6 +234,15 @@ class McqFilterServiceTest {
                   { "mode": "NEAR_DUPLICATE", "severity": %s, "triggered": false, "justification": "d" },
                   { "mode": "ILL_FORMED_DISTRACTORS", "severity": %s, "triggered": false, "justification": "e" } ] }
                 """.formatted(factual, triggerFirst, ambiguous, offTopic, duplicate, distractors);
+    }
+
+    private static String fitVerdict(double competency, double difficulty, double instructions) {
+        return """
+                { "rationale": "checked", "modes": [
+                  { "mode": "COMPETENCY_MISMATCH", "severity": %s, "triggered": false, "justification": "a" },
+                  { "mode": "DIFFICULTY_MISMATCH", "severity": %s, "triggered": false, "justification": "b" },
+                  { "mode": "INSTRUCTION_VIOLATION", "severity": %s, "triggered": false, "justification": "c" } ] }
+                """.formatted(competency, difficulty, instructions);
     }
 
     private static McqItem item() {

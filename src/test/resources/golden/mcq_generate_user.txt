@@ -1,0 +1,18 @@
+## Lecture Material
+-----BEGIN UNTRUSTED INPUT-----
+Lecture: 05 Linear Programming - Duality, Unit: 7 Duality, Pages 12–14
+The dual of the dual is the primal.
+
+Lecture: 05 Linear Programming - Duality, Unit: CE 4 Exercises, Page 3
+Construct the dual of the given program.
+-----END UNTRUSTED INPUT-----
+
+## Task
+Topic: Duality
+Language: en
+Number of answer options: 4
+Difficulty (0 = very easy, 100 = very hard): 50
+
+## Output Requirements
+Produce a JSON response that strictly follows this format:
+<format>

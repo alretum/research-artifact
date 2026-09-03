@@ -240,9 +240,14 @@ public final class Mcq {
         }
     }
 
-    /** Item defects the filter judges. */
+    /**
+     * Defects the filter judges.
+     * <p>
+     * The first five are properties of an item and its grounding alone. The last three compare an item to
+     * the request it is meant to serve, so they can only be judged once a request exists.
+     */
     public enum FailureMode {
-        FACTUAL_ERROR, AMBIGUOUS_CORRECT_ANSWER, OFF_TOPIC, NEAR_DUPLICATE, ILL_FORMED_DISTRACTORS
+        FACTUAL_ERROR, AMBIGUOUS_CORRECT_ANSWER, OFF_TOPIC, NEAR_DUPLICATE, ILL_FORMED_DISTRACTORS, COMPETENCY_MISMATCH, DIFFICULTY_MISMATCH, INSTRUCTION_VIOLATION
     }
 
     /**
@@ -259,7 +264,7 @@ public final class Mcq {
      * <p>
      * {@code accepted} is exactly {@code aggregateScore >= threshold}, so any decision can be recomputed
      * at a different threshold from stored data without issuing new calls. A decision is only produced
-     * when all five failure modes were judged.
+     * when every mode in the judged scope was scored.
      * <p>
      * Each mode's {@code triggered} flag is the model's own holistic verdict. It is recorded but takes no
      * part in the decision, so it stays usable as an independent check on the judge's self-consistency.

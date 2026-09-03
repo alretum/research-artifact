@@ -1,0 +1,26 @@
+## Lecture Material
+-----BEGIN UNTRUSTED INPUT-----
+Lecture: 05 Linear Programming - Duality, Unit: 7 Duality, Pages 12–14
+The dual of the dual is the primal.
+
+Lecture: 05 Linear Programming - Duality, Unit: CE 4 Exercises, Page 3
+Construct the dual of the given program.
+-----END UNTRUSTED INPUT-----
+
+## Question Under Review
+Title: HTTP Methods
+
+Which method is idempotent?
+
+Options:
+- [correct] PUT
+- [wrong] POST
+- [wrong] PATCH
+- [wrong] GET
+
+Stated explanation: PUT is idempotent.
+
+## Output Requirements
+Report one entry per failure mode, using exactly these mode names: FACTUAL_ERROR, AMBIGUOUS_CORRECT_ANSWER, OFF_TOPIC, NEAR_DUPLICATE, ILL_FORMED_DISTRACTORS.
+Produce a JSON response that strictly follows this format:
+<format>

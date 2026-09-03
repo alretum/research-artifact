@@ -19,6 +19,7 @@ import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.GroundingContext;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.ItemProvenance;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.LengthStats;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.McqItem;
+import de.tum.cit.aet.artemis.hyperion.mcq.filter.FilterScope;
 import de.tum.cit.aet.artemis.hyperion.mcq.filter.McqFilterService;
 import de.tum.cit.aet.artemis.hyperion.mcq.generation.McqGenerationService;
 import de.tum.cit.aet.artemis.hyperion.mcq.grounding.GroundingAssemblyService;
@@ -234,7 +235,7 @@ public class BatchRunner {
         });
         GroundingContext grounding = ground(provenance.topic());
 
-        var result = dependencies.filter().evaluate(item, grounding, settings.acceptThreshold(), settings.filterModel(), settings.filterTemperature(),
+        var result = dependencies.filter().evaluate(item, grounding, FilterScope.GENERAL, null, settings.acceptThreshold(), settings.filterModel(), settings.filterTemperature(),
                 settings.filterCallAttempts(), dependencies.filterClient());
 
         List<CallRecord> calls = append(claim.callsJson(), result.call());

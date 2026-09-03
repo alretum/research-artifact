@@ -1,6 +1,7 @@
 package de.tum.cit.aet.artemis.hyperion.mcq.filter;
 
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -24,19 +25,17 @@ import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.McqItem;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.ModeVerdict;
 
 /**
- * Scores a generated question against each {@link FailureMode} and decides whether to accept it.
+ * Scores a generated question against every {@link FailureMode} of a {@link FilterScope} and decides
+ * whether to accept it.
  * <p>
- * All five modes are judged in a single model call. The accept threshold is applied here rather than by
- * the model, so a stored decision can be re-derived under a different threshold.
+ * All modes of the scope are judged in a single model call, and a verdict that does not cover the full
+ * scope is discarded rather than defaulted. The accept threshold is applied here rather than by the model,
+ * so a stored decision can be re-derived under a different threshold.
  */
 @Service
 public class McqFilterService {
 
     private static final Logger log = LoggerFactory.getLogger(McqFilterService.class);
-
-    private static final String SYSTEM_PROMPT = "/prompts/mcq/mcq_filter_system.st";
-
-    private static final String USER_PROMPT = "/prompts/mcq/mcq_filter_user.st";
 
     private final PromptTemplateService templates;
 
@@ -57,24 +56,59 @@ public class McqFilterService {
     }
 
     /**
-     * Judge an item.
+     * The request-fit reference values, required by {@link FilterScope#REQUEST_FIT} and
+     * {@link FilterScope#COMBINED}.
+     *
+     * @param competencies        rendered titles and learning objectives of the requested competencies
+     * @param requestedDifficulty requested difficulty on the prompt scale 0 to 100
+     * @param instructions        the request's further instructions, or {@code null} when none were given
+     */
+    public record RequestContext(String competencies, int requestedDifficulty, String instructions) {
+    }
+
+    /**
+     * Judge an item under a scope.
      *
      * @param item      the question to judge
-     * @param grounding the material the question was generated from
-     * @param threshold   minimum aggregate score in [0, 1] required for acceptance, where the aggregate is
-     *                    {@code 1 - mean(severity)}
+     * @param grounding the material the question was generated from; may be {@code null} for a scope that
+     *                  does not judge against it
+     * @param scope     which failure modes to judge, and against which reference material
+     * @param request   the request-fit reference values; may be {@code null} for a scope that does not
+     *                  judge against a request
+     * @param threshold   minimum aggregate score in [0, 1] required for acceptance
      * @param model       provider model name, sent with the request
      * @param temperature sampling temperature
      * @param maxAttempts total attempts including the first
      * @param chatClient  client to issue the call with
      * @return the result, which always carries a {@link CallRecord}
+     * @throws IllegalArgumentException if the scope requires grounding or a request context and it is absent
      */
-    public Result evaluate(McqItem item, GroundingContext grounding, double threshold, String model, double temperature, int maxAttempts, ChatClient chatClient) {
+    public Result evaluate(McqItem item, GroundingContext grounding, FilterScope scope, RequestContext request, double threshold, String model, double temperature,
+            int maxAttempts, ChatClient chatClient) {
+        if (scope.requiresGrounding() && grounding == null) {
+            throw new IllegalArgumentException("Scope " + scope + " judges against grounding, but none was given");
+        }
+        if (scope.requiresRequest() && request == null) {
+            throw new IllegalArgumentException("Scope " + scope + " judges against a request, but none was given");
+        }
+
         BeanOutputConverter<FilterOutput> converter = StructuredOutputs.converterFor(FilterOutput.class);
-        String system = templates.render(SYSTEM_PROMPT, Map.of());
-        String user = templates.render(USER_PROMPT,
-                Map.of("groundingBlock", grounding.renderedBlock(), "questionTitle", item.title(), "questionText", item.questionText(), "options", renderOptions(item.options()),
-                        "explanation", item.explanation() == null ? "" : item.explanation(), "format", converter.getFormat()));
+        Map<String, Object> variables = new HashMap<>();
+        variables.put("questionTitle", item.title());
+        variables.put("questionText", item.questionText());
+        variables.put("options", renderOptions(item.options()));
+        variables.put("explanation", item.explanation() == null ? "" : item.explanation());
+        variables.put("format", converter.getFormat());
+        if (scope.requiresGrounding()) {
+            variables.put("groundingBlock", grounding.renderedBlock());
+        }
+        if (scope.requiresRequest()) {
+            variables.put("competencies", request.competencies());
+            variables.put("difficulty", request.requestedDifficulty());
+            variables.put("instructions", request.instructions() == null || request.instructions().isBlank() ? "(none)" : request.instructions());
+        }
+        String system = templates.render(scope.systemTemplate(), Map.of());
+        String user = templates.render(scope.userTemplate(), variables);
 
         ChatCall.Outcome outcome = ChatCall.execute("filter", model, temperature, maxAttempts, chatClient, system, user);
         CallRecord call = outcome.record();
@@ -99,9 +133,9 @@ public class McqFilterService {
             return new Result(null, call.withFailureCategory("FILTER_NO_MODES"));
         }
 
-        Map<FailureMode, ModeVerdict> verdicts = toVerdicts(output.modes());
-        if (verdicts.size() != FailureMode.values().length) {
-            log.warn("Filter judged {} of {} modes; discarding incomplete verdict", verdicts.size(), FailureMode.values().length);
+        Map<FailureMode, ModeVerdict> verdicts = toVerdicts(output.modes(), scope);
+        if (verdicts.size() != scope.modes().size()) {
+            log.warn("Filter judged {} of {} modes in scope {}; discarding incomplete verdict", verdicts.size(), scope.modes().size(), scope);
             return new Result(null, call.withFailureCategory("FILTER_INCOMPLETE_VERDICT"));
         }
         double worstSeverity = verdicts.values().stream().mapToDouble(ModeVerdict::severity).max().orElse(1);
@@ -110,10 +144,10 @@ public class McqFilterService {
         return new Result(new FilterDecision(aggregate >= threshold, aggregate, meanSeverity, verdicts, model, output.rationale()), call);
     }
 
-    private static Map<FailureMode, ModeVerdict> toVerdicts(List<ModeScore> scores) {
+    private static Map<FailureMode, ModeVerdict> toVerdicts(List<ModeScore> scores, FilterScope scope) {
         Map<FailureMode, ModeVerdict> verdicts = new EnumMap<>(FailureMode.class);
         for (ModeScore score : scores) {
-            parseMode(score.mode())
+            parseMode(score.mode()).filter(scope.modes()::contains)
                     .ifPresent(mode -> verdicts.put(mode, new ModeVerdict(clamp(score.severity()), Boolean.TRUE.equals(score.triggered()), score.justification())));
         }
         return verdicts;

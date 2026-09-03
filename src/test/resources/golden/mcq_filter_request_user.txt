@@ -1,0 +1,30 @@
+## Request
+The question under review was requested with the following inputs.
+-----BEGIN UNTRUSTED INPUT-----
+Competencies to assess:
+Arrays (APPLY)
+- Du kannst Arrays erstellen.
+- Du kannst auf Elemente im Array zugreifen.
+
+Difficulty (0 = very easy, 100 = very hard): 50
+
+Further instructions: (none)
+-----END UNTRUSTED INPUT-----
+
+## Question Under Review
+Title: HTTP Methods
+
+Which method is idempotent?
+
+Options:
+- [correct] PUT
+- [wrong] POST
+- [wrong] PATCH
+- [wrong] GET
+
+Stated explanation: PUT is idempotent.
+
+## Output Requirements
+Report one entry per failure mode, using exactly these mode names: COMPETENCY_MISMATCH, DIFFICULTY_MISMATCH, INSTRUCTION_VIOLATION.
+Produce a JSON response that strictly follows this format:
+<format>

@@ -40,6 +40,8 @@ dependencies {
 tasks.named("test") {
     useJUnitPlatform()
     jvmArgs("--enable-native-access=ALL-UNNAMED")
+    // Golden prompt files are rewritten instead of compared when this property is set.
+    systemProperty "updateGolden", System.getProperty("updateGolden", "false")
 }
 
 tasks.named("bootRun") {
