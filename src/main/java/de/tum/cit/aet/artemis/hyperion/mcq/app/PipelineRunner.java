@@ -21,6 +21,10 @@ import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter.Condition
 import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.BenchmarkExporter.Granularity;
 import de.tum.cit.aet.artemis.hyperion.mcq.cost.CostReporter;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.FilterDecision;
+import de.tum.cit.aet.artemis.hyperion.mcq.approach.AgenticApproach;
+import de.tum.cit.aet.artemis.hyperion.mcq.approach.TwoPhaseApproach;
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.GenerationRequest;
+import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyCatalogue;
 import de.tum.cit.aet.artemis.hyperion.mcq.plan.ModelCatalogue;
 import de.tum.cit.aet.artemis.hyperion.mcq.plan.ModelRegistry;
 import de.tum.cit.aet.artemis.hyperion.mcq.plan.RunPlan;
@@ -96,11 +100,16 @@ public class PipelineRunner implements ApplicationRunner {
 
     private final ReadinessService readiness;
 
+    private final AgenticApproach agentic;
+
+    private final TwoPhaseApproach twoPhase;
+
     private final tools.jackson.databind.json.JsonMapper mapper = de.tum.cit.aet.artemis.hyperion.mcq.llm.StructuredOutputs.outputMapper();
 
     public PipelineRunner(PipelineProperties properties, EmbeddingModel embeddingModel, ChatClient.Builder chatClientBuilder, GroundingAssemblyService groundingAssembly,
             McqGenerationService generation, McqFilterService filter, RunLogWriter runLog, ExtractionReportWriter reportWriter, CompositionReporter compositionReporter
-            , RunExporter exporter, ThresholdSweep sweep, FailureReporter failures, CostReporter cost, BenchmarkExporter benchmark, ReadinessService readiness) {
+            , RunExporter exporter, ThresholdSweep sweep, FailureReporter failures, CostReporter cost, BenchmarkExporter benchmark, ReadinessService readiness,
+            AgenticApproach agentic, TwoPhaseApproach twoPhase) {
         this.properties = properties;
         this.embeddingModel = embeddingModel;
         this.chatClientBuilder = chatClientBuilder;
@@ -116,6 +125,8 @@ public class PipelineRunner implements ApplicationRunner {
         this.cost = cost;
         this.benchmark = benchmark;
         this.readiness = readiness;
+        this.agentic = agentic;
+        this.twoPhase = twoPhase;
     }
 
     private ApplicationArguments arguments;
@@ -125,7 +136,7 @@ public class PipelineRunner implements ApplicationRunner {
         this.arguments = args;
         if (!args.containsOption("count") && !args.containsOption("resume") && !args.containsOption("report") && !args.containsOption("sweep")
                 && !args.containsOption("cost") && !args.containsOption("plan") && !args.containsOption("run-plan") && !args.containsOption("export-benchmark")
-                && !args.containsOption("doctor") && !args.containsOption("redecide") && !args.containsOption("retrieval-only")) {
+                && !args.containsOption("doctor") && !args.containsOption("redecide") && !args.containsOption("experiment") && !args.containsOption("retrieval-only")) {
             log.info("No command argument given; the web interface is available at http://localhost:8080");
             return;
         }
@@ -145,6 +156,10 @@ public class PipelineRunner implements ApplicationRunner {
         }
         if (args.containsOption("plan")) {
             describePlan(Path.of(args.getOptionValues("plan").getFirst()));
+            return;
+        }
+        if (args.containsOption("experiment")) {
+            runExperiment(Path.of(args.getOptionValues("experiment").getFirst()));
             return;
         }
         if (args.containsOption("run-plan")) {
@@ -328,6 +343,56 @@ public class PipelineRunner implements ApplicationRunner {
             throw new java.io.UncheckedIOException("Failed to write retrieval probe to " + output, e);
         }
         log.info("Retrieval probe for {} topics at top-k {} -> {}", topics.size(), properties.retrieval().topK(), output.toAbsolutePath());
+    }
+
+    /**
+     * Run a sweep plan: build the pools its two-phase configurations need, then answer every request with
+     * every configuration.
+     *
+     * @param sweepFile the sweep plan
+     */
+    private void runExperiment(Path sweepFile) {
+        SweepPlan plan = SweepPlan.load(sweepFile);
+        List<GenerationRequest> requests = RequestFileReader.read(Path.of(plan.requestsFile()));
+        Indexed indexed = buildIndex();
+        Map<String, de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyManifest> manifests = resolveManifests(requests);
+        ModelCatalogue catalogue = ModelCatalogue.load(Path.of(properties.modelCataloguePath()));
+        ModelRegistry registry = new ModelRegistry(catalogue, chatClientBuilder.build());
+        Map<String, String> hashes = SweepRunner.hashDocuments(Path.of(properties.corpusPath()));
+
+        try (RunStore store = new RunStore(Path.of(properties.batch().databasePath()))) {
+            SweepRunner runner = new SweepRunner(plan, requests,
+                    new SweepRunner.Dependencies(manifests, indexed.source(), groundingAssembly, generation, filter, agentic, twoPhase, store, registry, properties));
+            int assembled = runner.run(hashes);
+            log.info("Sweep {} complete: {} quizzes newly assembled, {} stored in total", plan.sweep(), assembled, store.quizzes(plan.sweep()).size());
+        }
+    }
+
+    /**
+     * Resolves the course model for every course the requests name.
+     * <p>
+     * When {@code mcq.competency-manifest} points at a directory, each course reads
+     * {@code <courseKey>.json} from it as a catalogue; a {@code .json} file is one catalogue for every
+     * course; anything else is one YAML manifest shared by every course.
+     *
+     * @param requests the requests naming the courses
+     * @return the course model per course key
+     */
+    private Map<String, de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyManifest> resolveManifests(List<GenerationRequest> requests) {
+        Path setting = Path.of(properties.competencyManifest());
+        Map<String, de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyManifest> manifests = new java.util.LinkedHashMap<>();
+        for (GenerationRequest request : requests) {
+            manifests.computeIfAbsent(request.courseKey(), courseKey -> {
+                if (java.nio.file.Files.isDirectory(setting)) {
+                    return CompetencyCatalogue.load(setting.resolve(courseKey + ".json"));
+                }
+                if (setting.toString().endsWith(".json")) {
+                    return CompetencyCatalogue.load(setting);
+                }
+                return de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyManifest.load(setting);
+            });
+        }
+        return manifests;
     }
 
     private Indexed buildIndex() {

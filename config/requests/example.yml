@@ -1,0 +1,9 @@
+# The request list every configuration of a sweep answers. Supplied by the supervisor;
+# this file is a placeholder showing the shape.
+- key: eidi-r1
+  course: EIDI
+  competencies: [arrays]
+  language: de
+  question-types: [single-choice]
+  number-of-questions: 10
+  difficulty: medium

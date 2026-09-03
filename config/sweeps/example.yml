@@ -1,0 +1,40 @@
+# One sweep = one experiment: which configurations answer which requests, how often.
+# The sweep name is the run id, so re-running this file resumes instead of repeating.
+# Model names are catalogue keys from config/models.yml.
+sweep: example
+requests-file: config/requests/example.yml
+repetitions: 3
+pool:
+  items-per-cell: 20
+  subsections: 5
+  retrieval-top-m: 40
+  languages: [de, en]
+  question-types: [single-choice, multiple-choice]
+  difficulties: [easy, medium, hard]
+selection:
+  max-candidates: 40
+  temperature: 0.7
+  max-attempts: 3
+agentic:
+  max-rounds: 5
+configurations:
+  - id: agentic-local
+    approach: agentic
+    generator: local
+    judge: local
+  - id: two-phase-local-local
+    approach: two-phase
+    generator: local
+    judge: local
+  - id: two-phase-local-cloud
+    approach: two-phase
+    generator: local
+    judge: cloud
+  - id: two-phase-cloud-local
+    approach: two-phase
+    generator: cloud
+    judge: local
+  - id: two-phase-cloud-cloud
+    approach: two-phase
+    generator: cloud
+    judge: cloud

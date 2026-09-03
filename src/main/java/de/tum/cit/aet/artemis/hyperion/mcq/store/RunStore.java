@@ -102,6 +102,20 @@ public class RunStore implements AutoCloseable {
                         PRIMARY KEY (item_rowid, judge_model, scope)
                     )""");
             statement.executeUpdate("""
+                    CREATE TABLE IF NOT EXISTS quiz (
+                        quiz_id TEXT PRIMARY KEY,
+                        run_id TEXT NOT NULL,
+                        configuration_id TEXT NOT NULL,
+                        course_key TEXT NOT NULL,
+                        request_key TEXT NOT NULL,
+                        repetition INTEGER NOT NULL,
+                        complete INTEGER NOT NULL,
+                        quiz_json TEXT NOT NULL,
+                        calls_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        UNIQUE (run_id, configuration_id, request_key, repetition)
+                    )""");
+            statement.executeUpdate("""
                     CREATE TABLE IF NOT EXISTS document (
                         course_key TEXT NOT NULL,
                         document TEXT NOT NULL,
@@ -411,6 +425,60 @@ public class RunStore implements AutoCloseable {
             throw new IllegalStateException("Failed to read pool candidates for cell " + cell.key(), e);
         }
         return candidates;
+    }
+
+    /**
+     * One assembled quiz.
+     */
+    public record StoredQuiz(String quizId, String runId, String configurationId, String courseKey, String requestKey, int repetition, boolean complete, String quizJson,
+            String callsJson) {
+    }
+
+    /**
+     * Record an assembled quiz, replacing an earlier one of the same identity.
+     *
+     * @param quiz the quiz to store
+     */
+    public synchronized void saveQuiz(StoredQuiz quiz) {
+        execute("""
+                INSERT OR REPLACE INTO quiz (quiz_id, run_id, configuration_id, course_key, request_key, repetition, complete, quiz_json, calls_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", quiz.quizId(), quiz.runId(), quiz.configurationId(), quiz.courseKey(), quiz.requestKey(), quiz.repetition(),
+                quiz.complete() ? 1 : 0, quiz.quizJson(), quiz.callsJson(), Instant.now().toString());
+    }
+
+    /**
+     * Whether a quiz for this cell of the sweep already exists, so a resumed sweep skips it.
+     *
+     * @return {@code true} when the quiz is already stored
+     */
+    public synchronized boolean quizExists(String runId, String configurationId, String requestKey, int repetition) {
+        return queryString("SELECT quiz_id FROM quiz WHERE run_id = ? AND configuration_id = ? AND request_key = ? AND repetition = ?", runId, configurationId, requestKey,
+                repetition).isPresent();
+    }
+
+    /**
+     * Reads every stored quiz of a run.
+     *
+     * @param runId the run
+     * @return quizzes ordered by configuration, request and repetition
+     */
+    public synchronized List<StoredQuiz> quizzes(String runId) {
+        List<StoredQuiz> quizzes = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT quiz_id, run_id, configuration_id, course_key, request_key, repetition, complete, quiz_json, calls_json
+                FROM quiz WHERE run_id = ? ORDER BY configuration_id, request_key, repetition""")) {
+            statement.setString(1, runId);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    quizzes.add(new StoredQuiz(rows.getString(1), rows.getString(2), rows.getString(3), rows.getString(4), rows.getString(5), rows.getInt(6), rows.getInt(7) != 0,
+                            rows.getString(8), rows.getString(9)));
+                }
+            }
+        }
+        catch (SQLException e) {
+            throw new IllegalStateException("Failed to read quizzes of run " + runId, e);
+        }
+        return quizzes;
     }
 
     /**
