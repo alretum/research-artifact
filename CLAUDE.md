@@ -882,9 +882,12 @@ request, not only the `CallRecord`. Spring AI 2.0 takes an options **builder**, 
 chatClient.prompt().options(ChatOptions.builder().model(model)).system(system).user(user).call()
 ```
 
-Note the missing `.build()` — that is not a typo. Alternatively resolve a model key to a distinct
-`ChatClient` in `app`. Either way, **a test must assert that the model reaching the request equals the model
-recorded**, because the 2×2's entire claim rests on it. Currently unbound — see [§10](#10-open-deviations).
+Note the missing `.build()` — that is not a typo. This project does **both**: `llm.ChatCall` binds the model
+onto every request, and `llm.ModelRegistry` resolves a backend key to a distinct `ChatClient`, because
+`OpenAiChatModel` fixes its HTTP client at construction and silently ignores a per-request `baseUrl` or
+`apiKey` — two endpoints therefore require two clients, never two option sets. Either way, **a test must
+assert that the model reaching the request equals the model recorded**, because the 2×2's entire claim rests
+on it — `ChatCallTest` and `ModelRegistryTest` do.
 
 **R2. One client for every backend.** `spring-ai-starter-model-openai` is the only model starter; it serves
 Ollama, LM Studio, Azure/Foundry, and vLLM behind Logos. **Never add a provider-specific starter**
@@ -1223,7 +1226,6 @@ consequence, not by effort.
 
 | # | Rule | Where | What is wrong |
 |---|---|---|---|
-| 1 | **R1a** | `McqGenerationService.generate`, `McqFilterService.evaluate`, `PipelineRunner.run` | The `model` argument reaches only `CallRecord.model`. The call itself carries no options, and `PipelineRunner` builds one `ChatClient` for both stages, so the running model always comes from `spring.ai.openai.chat.*`. Configuring `mcq.generator-model` ≠ `mcq.filter-model` therefore produces telemetry naming two models when one did all the work. **Silent data-integrity failure in the 2×2 — fix before any run whose numbers you intend to keep.** |
 | 2 | **R9** | `GroundingAssemblyService.render`, `Mcq.Snippet`, `EmbeddingSnippetSource.search` | `Chunk.header()` produces `Lecture: X, Unit: Y, Pages n–m`, but `Snippet` has no page fields, so `render` rebuilds a header without the page range. Attribution is lost between retrieval and prompt, defeating `BUILD.md` §2 habit 4. Add `firstPage`/`lastPage` to `Snippet`, or carry `Chunk.header()` through. |
 | 3 | **§5.2** | every `Mcq` record with a collection component: `McqItem.options`, `GroundingContext.snippets`, `ItemProvenance.groundingChunkIds`, `FilterDecision.modeVerdicts`, `RunRecord.calls` | No compact constructors, so each stores the caller's mutable collection — the records are shallowly immutable only. One `List.copyOf` / `Map.copyOf` per component fixes it and adds the null check. Cheap now, and it is the class of bug that shows up as an inexplicable difference between the JSONL row and the in-memory item. |
 | 4 | **R5** | `McqGenerationService.succeeded`/`failed`/`elapsedMs`, `McqFilterService.record`/`elapsedMs` | Usage extraction, elapsed-ms conversion and the `"success"`/`"error"` literals are duplicated verbatim across the two services; `stage` and `outcome` are strings. Extract `llm.CallRecords.from(...)` and make both enums in `domain`. |
