@@ -42,14 +42,27 @@ public interface QuizGenerator {
      * @param manifest           the course's competencies
      * @param snippets           retrieval over the course's indexed material
      * @param generator          the writing role
-     * @param judge              the filtering role
+     * @param judge              the filtering role; for the two-phase approach also the pool judge whose
+     *                           acceptance defines the candidate set
      * @param topK               snippets retrieved per query
      * @param maxGroundingTokens upper bound on the assembled grounding block
      * @param acceptThreshold    minimum aggregate filter score in [0, 1] for acceptance
      * @param maxRounds          generation rounds allowed before an incomplete quiz is returned
+     * @param selection          selection parameters; {@code null} for approaches that never select
      */
     record ApproachContext(CompetencyManifest manifest, SnippetSource snippets, ModelCall generator, ModelCall judge, int topK, int maxGroundingTokens, double acceptThreshold,
-            int maxRounds) {
+            int maxRounds, SelectionSettings selection) {
+    }
+
+    /**
+     * How the two-phase approach selects from the pool.
+     *
+     * @param selector      the selecting role
+     * @param maxCandidates most candidates one selection call may carry
+     * @param poolAsOf      answer from the pool as it stood at this ISO-8601 instant, or {@code null} for
+     *                      the current pool
+     */
+    record SelectionSettings(ModelCall selector, int maxCandidates, String poolAsOf) {
     }
 
     /**

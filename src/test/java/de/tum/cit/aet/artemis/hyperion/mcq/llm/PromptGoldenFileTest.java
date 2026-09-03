@@ -86,6 +86,20 @@ class PromptGoldenFileTest {
         check("/prompts/mcq/mcq_filter_combined_user.st", withQuestion(variables));
     }
 
+    @Test
+    void selectSystemPromptMatchesItsGoldenFile() throws IOException {
+        check("/prompts/mcq/mcq_select_system.st", Map.of());
+    }
+
+    @Test
+    void selectUserPromptMatchesItsGoldenFile() throws IOException {
+        Map<String, Object> variables = new java.util.HashMap<>(requestVariables());
+        variables.put("candidates", "[12] HTTP Methods\nWhich method is idempotent?\n- [correct] PUT\n- [wrong] POST\n- [wrong] PATCH\n- [wrong] GET");
+        variables.put("count", 2);
+        variables.put("format", "<format>");
+        check("/prompts/mcq/mcq_select_user.st", variables);
+    }
+
     private void check(String templatePath, Map<String, Object> variables) throws IOException {
         String rendered = templates.render(templatePath, variables);
         Path golden = GOLDEN_DIRECTORY.resolve(templatePath.substring(templatePath.lastIndexOf('/') + 1).replace(".st", ".txt"));

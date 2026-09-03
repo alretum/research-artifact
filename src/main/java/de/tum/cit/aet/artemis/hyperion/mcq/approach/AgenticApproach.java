@@ -51,7 +51,7 @@ public class AgenticApproach implements QuizGenerator {
 
     @Override
     public Quiz generate(GenerationRequest request, ApproachContext context) {
-        String competencies = request.competencyMode() ? renderCompetencies(request, context) : null;
+        String competencies = request.competencyMode() ? Competencies.render(request, context.manifest()) : null;
         GroundingContext grounding = ground(request, context);
         McqFilterService.RequestContext fit = new McqFilterService.RequestContext(competencies == null ? request.topic() : competencies, request.difficulty().promptValue(),
                 request.optionalPrompt());
@@ -109,7 +109,7 @@ public class AgenticApproach implements QuizGenerator {
         }
         Map<String, Snippet> merged = new LinkedHashMap<>();
         for (String key : request.competencyKeys()) {
-            Competency competency = resolve(request, context, key);
+            Competency competency = Competencies.resolve(request, context.manifest(), key);
             for (Snippet snippet : context.snippets().search(competency.retrievalQuery(), context.topK(), request.courseKey())) {
                 merged.putIfAbsent(snippet.chunkId(), snippet);
             }
@@ -118,23 +118,6 @@ public class AgenticApproach implements QuizGenerator {
         return groundingAssembly.assemble(label, List.copyOf(merged.values()), context.maxGroundingTokens());
     }
 
-    private static String renderCompetencies(GenerationRequest request, ApproachContext context) {
-        StringBuilder rendered = new StringBuilder();
-        for (String key : request.competencyKeys()) {
-            Competency competency = resolve(request, context, key);
-            rendered.append(competency.title()).append(" (").append(competency.taxonomy()).append(")\n");
-            if (competency.description() != null && !competency.description().isBlank()) {
-                rendered.append(competency.description()).append('\n');
-            }
-            rendered.append('\n');
-        }
-        return rendered.toString().strip();
-    }
-
-    private static Competency resolve(GenerationRequest request, ApproachContext context, String key) {
-        return context.manifest().byKey(key)
-                .orElseThrow(() -> new IllegalArgumentException("Request '" + request.key() + "' names competency '" + key + "', which the course model does not declare"));
-    }
 
     private static String normalise(String text) {
         return text.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").strip();

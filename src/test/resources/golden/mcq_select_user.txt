@@ -1,0 +1,29 @@
+## Request
+-----BEGIN UNTRUSTED INPUT-----
+Competencies to assess:
+Arrays (APPLY)
+- Du kannst Arrays erstellen.
+- Du kannst auf Elemente im Array zugreifen.
+
+Difficulty (0 = very easy, 100 = very hard): 50
+
+Further instructions: (none)
+-----END UNTRUSTED INPUT-----
+
+## Candidates
+Each candidate is identified by the numeric id in brackets.
+-----BEGIN UNTRUSTED INPUT-----
+[12] HTTP Methods
+Which method is idempotent?
+- [correct] PUT
+- [wrong] POST
+- [wrong] PATCH
+- [wrong] GET
+-----END UNTRUSTED INPUT-----
+
+## Task
+Select exactly 2 candidates for the quiz.
+
+## Output Requirements
+Produce a JSON response that strictly follows this format:
+<format>
