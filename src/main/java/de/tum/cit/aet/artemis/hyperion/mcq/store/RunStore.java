@@ -407,23 +407,26 @@ public class RunStore implements AutoCloseable {
     }
 
     /**
-     * Reads the generated questions of one cell that the given judge accepted.
+     * Reads the generated questions of one cell that the given generator produced and the given judge
+     * accepted.
      * <p>
-     * With {@code asOf} given, only items last updated at or before that instant are returned, so a request
-     * can be answered from the pool as it stood at that point in time.
+     * Several generators' pools share one database, so the generator filter is what keeps a configuration's
+     * candidates to its own pool. With {@code asOf} given, only items last updated at or before that instant
+     * are returned, so a request can be answered from the pool as it stood at that point in time.
      *
-     * @param cell       the cell to read
-     * @param judgeModel judge whose acceptance counts
-     * @param asOf       ISO-8601 instant, or {@code null} for the current pool
+     * @param cell           the cell to read
+     * @param generatorModel generator whose items qualify
+     * @param judgeModel     judge whose acceptance counts
+     * @param asOf           ISO-8601 instant, or {@code null} for the current pool
      * @return accepted candidates, oldest first
      */
-    public synchronized List<PoolCandidate> poolCandidates(PoolCell cell, String judgeModel, String asOf) {
+    public synchronized List<PoolCandidate> poolCandidates(PoolCell cell, String generatorModel, String judgeModel, String asOf) {
         List<PoolCandidate> candidates = new ArrayList<>();
         String sql = """
                 SELECT i.rowid, i.run_id, i.configuration_id, i.topic_key, i.item_index, i.section_index, i.item_json, i.provenance_json, v.decision_json
                 FROM item i JOIN verdict v ON v.item_rowid = i.rowid
                 WHERE i.course_key = ? AND i.competency_key = ? AND i.language = ? AND i.question_type = ? AND i.difficulty_band = ?
-                  AND i.item_json IS NOT NULL AND v.judge_model = ? AND v.scope = ? AND v.accepted = 1
+                  AND i.generator_model = ? AND i.item_json IS NOT NULL AND v.judge_model = ? AND v.scope = ? AND v.accepted = 1
                 """ + (asOf == null ? "" : " AND i.updated_at <= ?") + " ORDER BY i.rowid";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, cell.courseKey());
@@ -431,10 +434,11 @@ public class RunStore implements AutoCloseable {
             statement.setString(3, cell.language().code());
             statement.setString(4, cell.questionType().value());
             statement.setString(5, cell.difficulty().value());
-            statement.setString(6, judgeModel);
-            statement.setString(7, "GENERAL");
+            statement.setString(6, generatorModel);
+            statement.setString(7, judgeModel);
+            statement.setString(8, "GENERAL");
             if (asOf != null) {
-                statement.setString(8, asOf);
+                statement.setString(9, asOf);
             }
             try (ResultSet rows = statement.executeQuery()) {
                 while (rows.next()) {

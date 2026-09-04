@@ -46,4 +46,11 @@ tasks.named("test") {
 
 tasks.named("bootRun") {
     standardInput = System.in
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+}
+
+tasks.named("bootJar") {
+    manifest {
+        attributes "Enable-Native-Access": "ALL-UNNAMED"
+    }
 }

@@ -26,8 +26,8 @@ import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore.PoolCandidate;
  * The two-phase approach: answer a request by selecting from the pre-built question pool.
  * <p>
  * Candidates are narrowed in SQL by the request's labels — course, competency, language, question type,
- * difficulty — restricted to items the run's judge accepted at pool entry, then a model selects the quiz
- * from them. Nothing is generated at request time; a request the pool cannot serve yields an incomplete
+ * difficulty — restricted to items the run's generator produced and the run's judge accepted at pool
+ * entry, then a model selects the quiz from them. Nothing is generated at request time; a request the pool cannot serve yields an incomplete
  * quiz rather than fresh generation, so the two architectures never mix within one cell. Only
  * competency-mode requests can be answered, because the pool is keyed by competency.
  */
@@ -59,7 +59,7 @@ public class TwoPhaseApproach implements QuizGenerator {
             Competencies.resolve(request, context.manifest(), competencyKey);
             for (QuestionType type : request.questionTypes()) {
                 PoolCell cell = new PoolCell(request.courseKey(), competencyKey, request.language(), type, request.difficulty());
-                for (PoolCandidate candidate : store.poolCandidates(cell, context.judge().model(), context.selection().poolAsOf())) {
+                for (PoolCandidate candidate : store.poolCandidates(cell, context.generator().model(), context.judge().model(), context.selection().poolAsOf())) {
                     byId.putIfAbsent(candidate.id(), candidate);
                 }
             }

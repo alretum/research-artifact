@@ -51,6 +51,14 @@ public class ItemView {
         public boolean judged() {
             return decision != null;
         }
+
+        /**
+         * Whether the question text spans several lines, so a template can render it in a
+         * layout-preserving font.
+         */
+        public boolean multiline() {
+            return questionText != null && questionText.contains("\n");
+        }
     }
 
     /**

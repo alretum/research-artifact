@@ -40,6 +40,14 @@ public class QuizView {
      * @param decision {@code null} when the question carries no filter decision
      */
     public record Question(String title, String questionText, String explanation, List<AnswerOption> options, FilterDecision decision) {
+
+        /**
+         * Whether the question text spans several lines, so a template can render it in a
+         * layout-preserving font.
+         */
+        public boolean multiline() {
+            return questionText != null && questionText.contains("\n");
+        }
     }
 
     /**

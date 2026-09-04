@@ -17,7 +17,7 @@
 
     <div class="card" th:each="q, stat : ${quiz.questions()}">
         <h3><span th:text="${stat.count}"></span>. <span th:text="${q.title()}"></span></h3>
-        <p th:text="${q.questionText()}"></p>
+        <p class="qtext" th:classappend="${q.multiline()} ? 'mono'" th:text="${q.questionText()}"></p>
         <ul>
             <li th:each="o : ${q.options()}">
                 <strong th:if="${o.correct()}" th:text="${o.text()}"></strong>
@@ -25,7 +25,7 @@
                 <span class="muted" th:if="${o.correct()}"> ✓</span>
             </li>
         </ul>
-        <p class="muted" th:if="${q.explanation() != null}" th:text="${q.explanation()}"></p>
+        <p class="muted qtext" th:if="${q.explanation() != null}" th:text="${q.explanation()}"></p>
         <p class="muted" th:if="${q.decision() != null}">
             filter: <span th:text="${q.decision().accepted()} ? 'accepted' : 'rejected'"></span>
             (aggregate <span th:text="${#numbers.formatDecimal(q.decision().aggregateScore(), 1, 2)}"></span>,

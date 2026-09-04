@@ -114,5 +114,9 @@ logging:
   level:
     root: warn
     de.tum.cit.aet.artemis.hyperion.mcq: info
+    # Per-glyph font warnings from PDF extraction; the damage they signal is already counted and
+    # reported in aggregate by the extraction report.
+    org.apache.pdfbox: error
+    org.apache.fontbox: error
   pattern:
     console: "%d{HH:mm:ss} %-5level %msg%n"

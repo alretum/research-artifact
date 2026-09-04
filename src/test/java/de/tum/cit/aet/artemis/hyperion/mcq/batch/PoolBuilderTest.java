@@ -90,10 +90,10 @@ class PoolBuilderTest {
 
         assertThat(created).isEqualTo(4);
         assertThat(completed).isEqualTo(8);
-        List<RunStore.PoolCandidate> candidates = store.poolCandidates(CELL_A, "judge-model", null);
+        List<RunStore.PoolCandidate> candidates = store.poolCandidates(CELL_A, "gen-model", "judge-model", null);
         assertThat(candidates).hasSize(2);
         assertThat(candidates).extracting(RunStore.PoolCandidate::sectionIndex).containsExactlyInAnyOrder(0, 1);
-        assertThat(store.poolCandidates(cellB(), "judge-model", null)).hasSize(2);
+        assertThat(store.poolCandidates(cellB(), "gen-model", "judge-model", null)).hasSize(2);
     }
 
     @Test
@@ -130,8 +130,8 @@ class PoolBuilderTest {
 
         assertThat(judged).isEqualTo(4);
         org.mockito.Mockito.verifyNoInteractions(generatorModel);
-        assertThat(store.poolCandidates(CELL_A, "judge-model", null)).hasSize(2);
-        assertThat(store.poolCandidates(CELL_A, "second-judge", null)).isEmpty();
+        assertThat(store.poolCandidates(CELL_A, "gen-model", "judge-model", null)).hasSize(2);
+        assertThat(store.poolCandidates(CELL_A, "gen-model", "second-judge", null)).isEmpty();
     }
 
     private PoolBuilder.Settings settings(int subsections) {

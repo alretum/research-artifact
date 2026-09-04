@@ -71,3 +71,8 @@ main, .card { overflow-wrap:break-word; }
 .actions > form { display:flex; flex-direction:column; gap:.3rem; }
 .actions .row { display:flex; gap:.5rem; align-items:center; }
 .actions .muted { font-size:.8rem; max-width:32rem; }
+
+/* Question text is model output where newlines and column spacing carry meaning (matrices, simplex
+   tableaus), so whitespace is preserved; multi-line text renders monospaced to keep columns aligned. */
+.qtext { white-space: pre-wrap; }
+.qtext.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; }

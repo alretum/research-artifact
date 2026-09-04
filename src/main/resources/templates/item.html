@@ -14,7 +14,7 @@
             <span th:if="${view.judged()}" class="pill"
                   th:text="'score ' + ${#numbers.formatDecimal(view.decision().aggregateScore(),1,2)}"></span>
         </p>
-        <p th:text="${view.questionText()}"></p>
+        <p class="qtext" th:classappend="${view.multiline()} ? 'mono'" th:text="${view.questionText()}"></p>
 
         <form method="post" th:action="@{'/items/' + ${view.id()} + '/answer'}">
             <button th:each="o : ${view.options()}" type="submit" name="option" th:value="${o.index()}" class="opt"
@@ -25,7 +25,7 @@
         <p th:if="${answered != null}">
             <strong th:if="${view.options()[answered].correct()}" class="ok">Correct.</strong>
             <strong th:unless="${view.options()[answered].correct()}" class="bad">Not correct.</strong>
-            <span class="muted" th:text="${view.explanation()}"></span>
+            <span class="muted qtext" th:text="${view.explanation()}"></span>
         </p>
         <p th:if="${answered == null}" class="muted" style="font-size:.85rem">Choose an option to see the explanation.</p>
     </div>
