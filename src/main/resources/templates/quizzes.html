@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Quizzes', ~{::body-content})}">
+<body>
+<th:block th:fragment="body-content">
+    <h2>Quizzes</h2>
+
+    <div class="card" th:if="${notice}"><p th:text="${notice}"></p></div>
+    <div class="card" th:if="${error}"><p class="muted" th:text="${error}"></p></div>
+
+    <div class="card">
+        <p class="muted" th:if="${#lists.isEmpty(sweeps)}">
+            No quizzes yet. Run a sweep first:
+            <code>./gradlew bootRun --args='--experiment=config/sweeps/&lt;name&gt;.yml'</code>
+        </p>
+        <form method="get" th:action="@{/quizzes}" class="inline" th:unless="${#lists.isEmpty(sweeps)}">
+            <div>
+                <label for="sweep">Sweep</label>
+                <select id="sweep" name="sweep">
+                    <option th:each="s : ${sweeps}" th:value="${s}" th:text="${s}" th:selected="${s == selectedSweep}"></option>
+                </select>
+            </div>
+            <button type="submit">Show</button>
+        </form>
+    </div>
+
+    <div class="card" th:unless="${#lists.isEmpty(quizzes)}">
+        <table>
+            <thead>
+            <tr><th>Quiz</th><th>Configuration</th><th>Course</th><th>Request</th><th>Rep</th><th>Questions</th><th>Complete</th></tr>
+            </thead>
+            <tbody>
+            <tr th:each="q : ${quizzes}">
+                <td><a th:href="@{/quizzes/{id}(id=${q.quizId()})}" th:text="${q.quizId()}"></a></td>
+                <td th:text="${q.configurationId()}"></td>
+                <td th:text="${q.courseKey()}"></td>
+                <td th:text="${q.requestKey()}"></td>
+                <td th:text="${q.repetition()}"></td>
+                <td th:text="${q.questionCount()}"></td>
+                <td th:text="${q.complete()} ? 'yes' : 'INCOMPLETE'"></td>
+            </tr>
+            </tbody>
+        </table>
+        <form method="post" th:action="@{/quizzes/{sweep}/export(sweep=${selectedSweep})}" style="margin-top:1rem">
+            <button type="submit">Export this sweep for the benchmark</button>
+        </form>
+    </div>
+</th:block>
+</body>
+</html>

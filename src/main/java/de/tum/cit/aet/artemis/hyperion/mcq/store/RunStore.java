@@ -479,6 +479,49 @@ public class RunStore implements AutoCloseable {
     }
 
     /**
+     * Reads the run ids that hold stored quizzes, most recent first.
+     *
+     * @return distinct sweep run ids
+     */
+    public synchronized List<String> quizRunIds() {
+        List<String> ids = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement("SELECT run_id, MAX(created_at) FROM quiz GROUP BY run_id ORDER BY MAX(created_at) DESC");
+                ResultSet rows = statement.executeQuery()) {
+            while (rows.next()) {
+                ids.add(rows.getString(1));
+            }
+        }
+        catch (SQLException e) {
+            throw new IllegalStateException("Failed to list quiz runs", e);
+        }
+        return ids;
+    }
+
+    /**
+     * Reads one stored quiz.
+     *
+     * @param quizId the quiz
+     * @return the quiz, if stored
+     */
+    public synchronized Optional<StoredQuiz> quiz(String quizId) {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT quiz_id, run_id, configuration_id, course_key, request_key, repetition, complete, quiz_json, calls_json
+                FROM quiz WHERE quiz_id = ?""")) {
+            statement.setString(1, quizId);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    return Optional.empty();
+                }
+                return Optional.of(new StoredQuiz(rows.getString(1), rows.getString(2), rows.getString(3), rows.getString(4), rows.getString(5), rows.getInt(6),
+                        rows.getInt(7) != 0, rows.getString(8), rows.getString(9)));
+            }
+        }
+        catch (SQLException e) {
+            throw new IllegalStateException("Failed to read quiz " + quizId, e);
+        }
+    }
+
+    /**
      * Reads every stored quiz of a run.
      *
      * @param runId the run

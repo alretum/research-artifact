@@ -205,8 +205,9 @@ public class SweepExporter {
 
     private void writeConfig(Path directory, String sweepId) {
         String yaml = """
-                # Written by --export-experiment. Run from the benchmark checkout:
-                #   python main.py --config %s
+                # Written by --export-experiment. All paths are relative to this file's directory, so run
+                # the benchmark from here:
+                #   cd <this directory> && python <benchmark checkout>/main.py --config benchmark.yaml
                 #
                 # Evaluator models must differ from every generator, judge and selector of the sweep: an
                 # evaluator that also produced or filtered these questions measures self-agreement.
@@ -237,15 +238,16 @@ public class SweepExporter {
                   - {name: "homogeneous_options", version: "1.0", evaluators: ["independent_judge"], enabled: true}
 
                 inputs:
-                  quiz_directory: "%s"
-                  source_directory: "%s"
-                  instructions_directory: "%s"
+                  quiz_directory: "quizzes"
+                  # Point this at the directory holding the course slide PDFs, one subdirectory per course
+                  # key (EIDI/, EIST/, PSE/): each quiz's source_material names its course's subdirectory.
+                  source_directory: "<path to the course material>"
+                  instructions_directory: "instructions"
 
                 outputs:
-                  results_directory: "%s"
+                  results_directory: "results"
                   aggregate: true
-                """.formatted(directory.resolve("benchmark.yaml").toAbsolutePath(), sweepId, directory.resolve("quizzes").toAbsolutePath(), Path.of("corpus").toAbsolutePath(),
-                directory.resolve("instructions").toAbsolutePath(), directory.resolve("results").toAbsolutePath());
+                """.formatted(sweepId);
         try {
             Files.writeString(directory.resolve("benchmark.yaml"), yaml, StandardCharsets.UTF_8);
         }

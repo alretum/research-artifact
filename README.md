@@ -27,7 +27,9 @@ How far that has actually been exercised, stated precisely:
 currently runs on the same model as the generator, so its accept rate partly measures the model agreeing
 with itself. Independent measurement comes from
 [`ls1intum/paper-al-quiz-generation-benchmark`](https://github.com/ls1intum/paper-al-quiz-generation-benchmark),
-which this tool exports for. Step 7 covers that.
+which this tool exports for. Step 7 covers the item export. Full experiments — both approaches over a
+request list — run as sweeps: [`EXPERIMENT.md`](./EXPERIMENT.md) is the walkthrough, and
+[`BENCHMARK.md`](./BENCHMARK.md) the scoring handoff.
 
 ---
 

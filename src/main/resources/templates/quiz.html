@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Quizzes', ~{::body-content})}">
+<body>
+<th:block th:fragment="body-content">
+    <h2 th:text="${quiz.quizId()}"></h2>
+
+    <div class="card">
+        <p>
+            <span th:text="${quiz.configurationId()}"></span> ·
+            course <span th:text="${quiz.courseKey()}"></span> ·
+            request <span th:text="${quiz.requestKey()}"></span> ·
+            repetition <span th:text="${quiz.repetition()}"></span> ·
+            <strong th:text="${quiz.complete()} ? 'complete' : 'INCOMPLETE'"></strong>
+        </p>
+        <p><a th:href="@{/quizzes(sweep=${quiz.runId()})}">← back to the sweep</a></p>
+    </div>
+
+    <div class="card" th:each="q, stat : ${quiz.questions()}">
+        <h3><span th:text="${stat.count}"></span>. <span th:text="${q.title()}"></span></h3>
+        <p th:text="${q.questionText()}"></p>
+        <ul>
+            <li th:each="o : ${q.options()}">
+                <strong th:if="${o.correct()}" th:text="${o.text()}"></strong>
+                <span th:unless="${o.correct()}" th:text="${o.text()}"></span>
+                <span class="muted" th:if="${o.correct()}"> ✓</span>
+            </li>
+        </ul>
+        <p class="muted" th:if="${q.explanation() != null}" th:text="${q.explanation()}"></p>
+        <p class="muted" th:if="${q.decision() != null}">
+            filter: <span th:text="${q.decision().accepted()} ? 'accepted' : 'rejected'"></span>
+            (aggregate <span th:text="${#numbers.formatDecimal(q.decision().aggregateScore(), 1, 2)}"></span>,
+            judged by <span th:text="${q.decision().filterModel()}"></span>)
+        </p>
+    </div>
+</th:block>
+</body>
+</html>

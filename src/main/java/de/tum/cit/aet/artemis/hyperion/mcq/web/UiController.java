@@ -1,6 +1,7 @@
 package de.tum.cit.aet.artemis.hyperion.mcq.web;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.slf4j.Logger;
@@ -40,6 +41,10 @@ import de.tum.cit.aet.artemis.hyperion.mcq.plan.RunPlanFiles;
 import de.tum.cit.aet.artemis.hyperion.mcq.upload.CorpusUploadService;
 import de.tum.cit.aet.artemis.hyperion.mcq.readiness.Readiness;
 import de.tum.cit.aet.artemis.hyperion.mcq.readiness.ReadinessService;
+import de.tum.cit.aet.artemis.hyperion.mcq.app.RequestFileReader;
+import de.tum.cit.aet.artemis.hyperion.mcq.app.SweepPlan;
+import de.tum.cit.aet.artemis.hyperion.mcq.benchmark.SweepExporter;
+import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyCatalogue;
 import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore;
 
 /**
@@ -68,14 +73,20 @@ public class UiController {
 
     private final CorpusUploadService uploads;
 
+    private final QuizView quizView;
+
+    private final SweepExporter sweepExporter;
+
     /** Staged uploads awaiting a decision, so the preview can show what was refused. */
     private final java.util.Map<String, CorpusUploadService.Staged> pending = new java.util.concurrent.ConcurrentHashMap<>();
 
     public UiController(CorpusIndexService corpus, RunManager runs, RunStore store, ItemView itemView, PipelineProperties properties, ReadinessService readiness
-            , BenchmarkExporter exporter, CorpusUploadService uploads) {
+            , BenchmarkExporter exporter, CorpusUploadService uploads, QuizView quizView, SweepExporter sweepExporter) {
         this.readiness = readiness;
         this.exporter = exporter;
         this.uploads = uploads;
+        this.quizView = quizView;
+        this.sweepExporter = sweepExporter;
         this.corpus = corpus;
         this.runs = runs;
         this.store = store;
@@ -518,6 +529,56 @@ public class UiController {
         model.addAttribute("blockers", result.blockers());
         model.addAttribute("ready", result.ready());
         return "readiness";
+    }
+
+    @GetMapping("/quizzes")
+    public String quizzes(@RequestParam(required = false) String sweep, Model model) {
+        List<String> sweeps = store.quizRunIds();
+        String selected = sweep != null && !sweep.isBlank() ? sweep : (sweeps.isEmpty() ? null : sweeps.getFirst());
+        model.addAttribute("sweeps", sweeps);
+        model.addAttribute("selectedSweep", selected);
+        model.addAttribute("quizzes", selected == null ? List.of() : store.quizzes(selected).stream().map(quizView::summarise).toList());
+        return "quizzes";
+    }
+
+    @GetMapping("/quizzes/{quizId}")
+    public String quiz(@PathVariable String quizId, Model model) {
+        var stored = store.quiz(quizId);
+        if (stored.isEmpty()) {
+            return "redirect:/quizzes";
+        }
+        model.addAttribute("quiz", quizView.render(stored.get()));
+        return "quiz";
+    }
+
+    @PostMapping("/quizzes/{sweep}/export")
+    public String exportSweep(@PathVariable String sweep, RedirectAttributes flash) {
+        Path sweepFile = Path.of(properties.runPlanPath()).getParent().resolve("sweeps").resolve(sweep + ".yml");
+        try {
+            SweepPlan plan = SweepPlan.load(sweepFile);
+            List<de.tum.cit.aet.artemis.hyperion.mcq.domain.GenerationRequest> requests = RequestFileReader.read(Path.of(plan.requestsFile()));
+            Map<String, de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyManifest> manifests = new java.util.LinkedHashMap<>();
+            Path setting = Path.of(properties.competencyManifest());
+            for (var request : requests) {
+                manifests.computeIfAbsent(request.courseKey(), courseKey -> {
+                    if (java.nio.file.Files.isDirectory(setting)) {
+                        return CompetencyCatalogue.load(setting.resolve(courseKey + ".json"));
+                    }
+                    if (setting.toString().endsWith(".json")) {
+                        return CompetencyCatalogue.load(setting);
+                    }
+                    return de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyManifest.load(setting);
+                });
+            }
+            Path directory = Path.of(properties.benchmarkExportPath()).resolve(plan.sweep());
+            List<Path> written = sweepExporter.export(store, plan.sweep(), requests, manifests, directory);
+            flash.addFlashAttribute("notice", "Exported " + written.size() + " quizzes to " + directory + " — see BENCHMARK.md for the handoff");
+        }
+        catch (RuntimeException e) {
+            log.warn("Sweep export of {} failed", sweep, e);
+            flash.addFlashAttribute("error", "Export failed: " + e.getMessage());
+        }
+        return "redirect:/quizzes?sweep=" + java.net.URLEncoder.encode(sweep, java.nio.charset.StandardCharsets.UTF_8);
     }
 
     @GetMapping("/items")
