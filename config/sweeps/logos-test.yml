@@ -1,0 +1,48 @@
+# Test sweep: both approaches over two Logos-served models cast as tiers.
+# "local" = meta-llama/Llama-3.1-8B-Instruct, "cloud" = openai/gpt-oss-120b (config/models.yml).
+#
+# Pool arithmetic before running: the dev manifest has 16 competencies, so each generator's pool is
+# 16 cells x 2 items = 32 items, generated + judged (~64 calls), plus the second judge's pass (~32).
+# Two generators -> roughly 190 pool calls, then 6 configurations x 2 requests x 2 repetitions of
+# quiz assembly on top. Expect one to two hours end to end.
+sweep: logos-test
+requests-file: config/requests/logos-test.yml
+repetitions: 2
+pool:
+  items-per-cell: 2
+  subsections: 2
+  retrieval-top-m: 8
+  languages: [en]
+  question-types: [single-choice]
+  difficulties: [medium]
+selection:
+  max-candidates: 40
+  temperature: 0.7
+  max-attempts: 3
+agentic:
+  max-rounds: 4
+configurations:
+  - id: agentic-local
+    approach: agentic
+    generator: local
+    judge: local
+  - id: agentic-cloud
+    approach: agentic
+    generator: cloud
+    judge: cloud
+  - id: two-phase-local-local
+    approach: two-phase
+    generator: local
+    judge: local
+  - id: two-phase-local-cloud
+    approach: two-phase
+    generator: local
+    judge: cloud
+  - id: two-phase-cloud-local
+    approach: two-phase
+    generator: cloud
+    judge: local
+  - id: two-phase-cloud-cloud
+    approach: two-phase
+    generator: cloud
+    judge: cloud

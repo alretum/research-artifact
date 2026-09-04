@@ -1,0 +1,15 @@
+# Two requests for the logos test sweep, against the committed dev manifest (course key `or`).
+- key: or-duality
+  course: or
+  competencies: [lp-duality]
+  language: en
+  question-types: [single-choice]
+  number-of-questions: 3
+  difficulty: medium
+- key: or-simplex
+  course: or
+  competencies: [lp-simplex]
+  language: en
+  question-types: [single-choice]
+  number-of-questions: 3
+  difficulty: medium

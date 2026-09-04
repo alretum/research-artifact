@@ -15,6 +15,8 @@ models:
     billing: gpu-time
   "openai/gpt-oss-120b":
     billing: gpu-time
+  "meta-llama/Llama-3.1-8B-Instruct":
+    billing: gpu-time
   "llama3.1:latest":
     billing: gpu-time
 

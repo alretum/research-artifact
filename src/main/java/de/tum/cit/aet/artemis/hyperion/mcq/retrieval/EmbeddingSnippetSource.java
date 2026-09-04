@@ -168,13 +168,17 @@ public class EmbeddingSnippetSource implements SnippetSource {
         }
     }
 
+    /**
+     * Searches the indexed corpus.
+     * <p>
+     * This source indexes exactly one corpus, so {@code courseKey} does not narrow anything: whatever
+     * course the caller names, the one indexed corpus is searched. Deployments with several courses need
+     * one index per course before the key can scope.
+     */
     @Override
     public List<Snippet> search(String query, int limit, String courseKey) {
         if (entries.isEmpty()) {
             throw new IllegalStateException("Index is empty; call index(..) before searching");
-        }
-        if (courseKey != null) {
-            throw new IllegalArgumentException("This source indexes one corpus and cannot scope by course; expected a null courseKey, got '" + courseKey + "'");
         }
         float[] queryVector = embeddingModel.embed(query);
         double queryNorm = norm(queryVector);

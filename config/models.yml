@@ -36,6 +36,16 @@ backends:
 
 models:
 
+  # The two tiers of the logos test sweep: a small model cast as "local" and the largest available
+  # cast as "cloud". Both are served by Logos; the tier names are the experiment's, not the provider's.
+  local:
+    backend: logos
+    model: meta-llama/Llama-3.1-8B-Instruct
+
+  cloud:
+    backend: logos
+    model: openai/gpt-oss-120b
+
   gpt-oss-120b:
     backend: logos
     # Exactly as the provider reports it in GET /v1/models, and exactly as it is recorded on each call
