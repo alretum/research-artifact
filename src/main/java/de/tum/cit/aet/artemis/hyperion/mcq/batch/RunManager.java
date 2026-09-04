@@ -131,12 +131,17 @@ public class RunManager {
 
     /**
      * Progress of a run.
+     * <p>
+     * A sweep run holds quizzes rather than items, so its {@code stateCounts} are empty and its progress is
+     * the quiz count.
      *
      * @param running     whether this run is the one currently executing
      * @param stopping    whether a stop has been requested but work is still finishing
      * @param stateCounts item counts by state
+     * @param quizzes     quizzes stored under the run
      */
-    public record Progress(String runId, boolean running, boolean stopping, boolean complete, Map<String, Integer> stateCounts, String description, Instant startedAt) {
+    public record Progress(String runId, boolean running, boolean stopping, boolean complete, Map<String, Integer> stateCounts, int quizzes, String description,
+            Instant startedAt) {
 
         /**
          * @return items the run contains in total
@@ -357,7 +362,7 @@ public class RunManager {
         Active current = active;
         boolean running = current != null && current.runId().equals(runId) && !current.future().isDone();
         boolean stopping = running && current.stopRequested().get();
-        return new Progress(runId, running, stopping, store.isComplete(runId), store.stateCounts(runId), running ? current.description() : null,
+        return new Progress(runId, running, stopping, store.isComplete(runId), store.stateCounts(runId), store.quizCount(runId), running ? current.description() : null,
                 running ? current.startedAt() : null);
     }
 

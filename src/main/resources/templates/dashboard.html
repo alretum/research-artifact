@@ -80,20 +80,23 @@
                 <strong th:text="${r.runId()}"></strong>
                 <span class="pill ok" th:if="${r.running()} and !${r.stopping()}">running</span>
                 <span class="pill warn" th:if="${r.stopping()}">stopping</span>
-                <span class="pill" th:if="${!r.running()} and ${r.complete()}">complete</span>
-                <span class="pill warn" th:if="${!r.running()} and !${r.complete()}">outstanding</span>
+                <span class="pill" th:if="${!r.running()} and ${r.complete()} and ${r.total() > 0}">complete</span>
+                <span class="pill warn" th:if="${!r.running()} and !${r.complete()} and ${r.total() > 0}">outstanding</span>
+                <span class="pill" th:if="${r.total() == 0} and ${r.quizzes() > 0}">sweep</span>
                 <span class="muted" th:if="${r.description() != null}" th:text="' — ' + ${r.description()}"></span>
             </div>
             <div>
                 <form method="post" th:action="@{'/runs/' + ${r.runId()} + '/stop'}" style="display:inline"
                       th:if="${r.running()}"><button type="submit">Stop</button></form>
                 <form method="post" th:action="@{'/runs/' + ${r.runId()} + '/resume'}" style="display:inline"
-                      th:if="${!r.running()} and !${r.complete()}"><button type="submit" th:disabled="${activeRunId != null}">Resume</button></form>
-                <a th:href="@{/items(run=${r.runId()})}">items</a>
+                      th:if="${!r.running()} and !${r.complete()} and ${r.total() > 0}"><button type="submit" th:disabled="${activeRunId != null}">Resume</button></form>
+                <a th:if="${r.total() > 0}" th:href="@{/items(run=${r.runId()})}">items</a>
+                <a th:if="${r.quizzes() > 0}" th:href="@{/quizzes(sweep=${r.runId()})}">quizzes</a>
             </div>
         </div>
-        <div class="muted" style="font-size:.85rem" th:text="${r.done()} + ' / ' + ${r.total()} + ' done — ' + ${r.stateCounts()}"></div>
-        <div class="bar"><div th:style="'width:' + ${r.percent()} + '%'"></div></div>
+        <div class="muted" style="font-size:.85rem" th:if="${r.total() > 0}" th:text="${r.done()} + ' / ' + ${r.total()} + ' done — ' + ${r.stateCounts()}"></div>
+        <div class="muted" style="font-size:.85rem" th:if="${r.total() == 0}" th:text="${r.quizzes()} + ' quizzes stored'"></div>
+        <div class="bar" th:if="${r.total() > 0}"><div th:style="'width:' + ${r.percent()} + '%'"></div></div>
     </div>
 
     <script th:inline="javascript">

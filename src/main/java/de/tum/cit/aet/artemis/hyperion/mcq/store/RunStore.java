@@ -473,6 +473,24 @@ public class RunStore implements AutoCloseable {
     }
 
     /**
+     * Counts the quizzes stored under a run.
+     *
+     * @param runId run to count for
+     * @return the number of stored quizzes
+     */
+    public synchronized int quizCount(String runId) {
+        try (PreparedStatement statement = connection.prepareStatement("SELECT COUNT(*) FROM quiz WHERE run_id = ?")) {
+            statement.setString(1, runId);
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next() ? rows.getInt(1) : 0;
+            }
+        }
+        catch (SQLException e) {
+            throw new IllegalStateException("Failed to count quizzes of run " + runId, e);
+        }
+    }
+
+    /**
      * Whether a quiz for this cell of the sweep already exists, so a resumed sweep skips it.
      *
      * @return {@code true} when the quiz is already stored
