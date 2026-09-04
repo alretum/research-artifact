@@ -133,6 +133,7 @@ public class RunStore implements AutoCloseable {
         addColumnIfMissing("item", "section_index", "INTEGER");
         addColumnIfMissing("item", "generator_model", "TEXT");
         addColumnIfMissing("verdict", "calls_json", "TEXT");
+        addColumnIfMissing("quiz", "rejected_json", "TEXT");
         try (Statement statement = connection.createStatement()) {
             statement.executeUpdate("CREATE INDEX IF NOT EXISTS pool_lookup ON item (course_key, competency_key, language, question_type, difficulty_band)");
         }
@@ -455,9 +456,13 @@ public class RunStore implements AutoCloseable {
 
     /**
      * One assembled quiz.
+     *
+     * @param quizJson     the accepted questions, as a JSON array of judged questions
+     * @param rejectedJson questions generated but rejected on the way, same shape; {@code null} on quizzes
+     *                     stored before rejected questions were recorded
      */
     public record StoredQuiz(String quizId, String runId, String configurationId, String courseKey, String requestKey, int repetition, boolean complete, String quizJson,
-            String callsJson) {
+            String rejectedJson, String callsJson) {
     }
 
     /**
@@ -467,9 +472,9 @@ public class RunStore implements AutoCloseable {
      */
     public synchronized void saveQuiz(StoredQuiz quiz) {
         execute("""
-                INSERT OR REPLACE INTO quiz (quiz_id, run_id, configuration_id, course_key, request_key, repetition, complete, quiz_json, calls_json, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", quiz.quizId(), quiz.runId(), quiz.configurationId(), quiz.courseKey(), quiz.requestKey(), quiz.repetition(),
-                quiz.complete() ? 1 : 0, quiz.quizJson(), quiz.callsJson(), Instant.now().toString());
+                INSERT OR REPLACE INTO quiz (quiz_id, run_id, configuration_id, course_key, request_key, repetition, complete, quiz_json, rejected_json, calls_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", quiz.quizId(), quiz.runId(), quiz.configurationId(), quiz.courseKey(), quiz.requestKey(), quiz.repetition(),
+                quiz.complete() ? 1 : 0, quiz.quizJson(), quiz.rejectedJson(), quiz.callsJson(), Instant.now().toString());
     }
 
     /**
@@ -527,7 +532,7 @@ public class RunStore implements AutoCloseable {
      */
     public synchronized Optional<StoredQuiz> quiz(String quizId) {
         try (PreparedStatement statement = connection.prepareStatement("""
-                SELECT quiz_id, run_id, configuration_id, course_key, request_key, repetition, complete, quiz_json, calls_json
+                SELECT quiz_id, run_id, configuration_id, course_key, request_key, repetition, complete, quiz_json, rejected_json, calls_json
                 FROM quiz WHERE quiz_id = ?""")) {
             statement.setString(1, quizId);
             try (ResultSet rows = statement.executeQuery()) {
@@ -535,7 +540,7 @@ public class RunStore implements AutoCloseable {
                     return Optional.empty();
                 }
                 return Optional.of(new StoredQuiz(rows.getString(1), rows.getString(2), rows.getString(3), rows.getString(4), rows.getString(5), rows.getInt(6),
-                        rows.getInt(7) != 0, rows.getString(8), rows.getString(9)));
+                        rows.getInt(7) != 0, rows.getString(8), rows.getString(9), rows.getString(10)));
             }
         }
         catch (SQLException e) {
@@ -552,13 +557,13 @@ public class RunStore implements AutoCloseable {
     public synchronized List<StoredQuiz> quizzes(String runId) {
         List<StoredQuiz> quizzes = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement("""
-                SELECT quiz_id, run_id, configuration_id, course_key, request_key, repetition, complete, quiz_json, calls_json
+                SELECT quiz_id, run_id, configuration_id, course_key, request_key, repetition, complete, quiz_json, rejected_json, calls_json
                 FROM quiz WHERE run_id = ? ORDER BY configuration_id, request_key, repetition""")) {
             statement.setString(1, runId);
             try (ResultSet rows = statement.executeQuery()) {
                 while (rows.next()) {
                     quizzes.add(new StoredQuiz(rows.getString(1), rows.getString(2), rows.getString(3), rows.getString(4), rows.getString(5), rows.getInt(6), rows.getInt(7) != 0,
-                            rows.getString(8), rows.getString(9)));
+                            rows.getString(8), rows.getString(9), rows.getString(10)));
                 }
             }
         }
@@ -566,6 +571,74 @@ public class RunStore implements AutoCloseable {
             throw new IllegalStateException("Failed to read quizzes of run " + runId, e);
         }
         return quizzes;
+    }
+
+    /**
+     * Reads every stored quiz of one approach, across all runs.
+     *
+     * @param approach the approach segment of the configuration id, for example {@code "agentic"}
+     * @return quizzes ordered by run, configuration, request and repetition
+     */
+    public synchronized List<StoredQuiz> quizzesOfApproach(String approach) {
+        List<StoredQuiz> quizzes = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT quiz_id, run_id, configuration_id, course_key, request_key, repetition, complete, quiz_json, rejected_json, calls_json
+                FROM quiz WHERE configuration_id LIKE ? ESCAPE '\\' ORDER BY run_id, configuration_id, request_key, repetition""")) {
+            statement.setString(1, approach.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "|%");
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    quizzes.add(new StoredQuiz(rows.getString(1), rows.getString(2), rows.getString(3), rows.getString(4), rows.getString(5), rows.getInt(6), rows.getInt(7) != 0,
+                            rows.getString(8), rows.getString(9), rows.getString(10)));
+                }
+            }
+        }
+        catch (SQLException e) {
+            throw new IllegalStateException("Failed to read quizzes of approach " + approach, e);
+        }
+        return quizzes;
+    }
+
+    /**
+     * One pool item for the pool overview, including items whose generation failed.
+     *
+     * @param title          {@code null} while nothing was generated
+     * @param accepted       the build judge's decision, {@code null} while unjudged
+     * @param acceptVerdicts recorded verdicts that accepted the item
+     * @param totalVerdicts  recorded verdicts overall
+     */
+    public record PoolItemSummary(long id, String runId, String courseKey, String competencyKey, String language, String questionType, String difficultyBand,
+            String generatorModel, ItemState state, String title, Boolean accepted, int acceptVerdicts, int totalVerdicts) {
+    }
+
+    /**
+     * Lists the items of every pool run, newest first.
+     *
+     * @param limit maximum rows to return
+     * @return pool item summaries
+     */
+    public synchronized List<PoolItemSummary> browsePool(int limit) {
+        List<PoolItemSummary> items = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT i.rowid, i.run_id, i.course_key, i.competency_key, i.language, i.question_type, i.difficulty_band, i.generator_model, i.state,
+                       json_extract(i.item_json, '$.title'),
+                       json_extract(i.decision_json, '$.accepted'),
+                       (SELECT COUNT(*) FROM verdict v WHERE v.item_rowid = i.rowid AND v.accepted = 1),
+                       (SELECT COUNT(*) FROM verdict v WHERE v.item_rowid = i.rowid)
+                FROM item i WHERE i.configuration_id LIKE 'pool|%' ORDER BY i.updated_at DESC LIMIT ?""")) {
+            statement.setInt(1, limit);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    Object acceptedValue = rows.getObject(11);
+                    items.add(new PoolItemSummary(rows.getLong(1), rows.getString(2), rows.getString(3), rows.getString(4), rows.getString(5), rows.getString(6),
+                            rows.getString(7), rows.getString(8), ItemState.valueOf(rows.getString(9)), rows.getString(10),
+                            acceptedValue == null ? null : ((Number) acceptedValue).intValue() != 0, rows.getInt(12), rows.getInt(13)));
+                }
+            }
+        }
+        catch (SQLException e) {
+            throw new IllegalStateException("Failed to browse the pool", e);
+        }
+        return items;
     }
 
     /**

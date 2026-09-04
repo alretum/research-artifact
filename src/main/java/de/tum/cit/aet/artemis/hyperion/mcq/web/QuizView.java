@@ -1,5 +1,6 @@
 package de.tum.cit.aet.artemis.hyperion.mcq.web;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
@@ -51,6 +52,14 @@ public class QuizView {
     }
 
     /**
+     * One request-time generation, accepted into its quiz or rejected by the judge on the way.
+     *
+     * @param decision {@code null} when the question carries no filter decision
+     */
+    public record Generation(String quizId, String configurationId, String requestKey, int repetition, String title, boolean accepted, FilterDecision decision) {
+    }
+
+    /**
      * Summarises a stored quiz for the list view.
      *
      * @param stored the stored quiz
@@ -59,6 +68,25 @@ public class QuizView {
     public Summary summarise(StoredQuiz stored) {
         return new Summary(stored.quizId(), stored.configurationId(), stored.courseKey(), stored.requestKey(), stored.repetition(), stored.complete(),
                 questions(stored).size());
+    }
+
+    /**
+     * Flattens a stored quiz into one row per generated question, accepted ones first.
+     * <p>
+     * Quizzes stored before rejected questions were recorded contribute their accepted questions only.
+     *
+     * @param stored the stored quiz
+     * @return one row per question
+     */
+    public List<Generation> generations(StoredQuiz stored) {
+        List<Generation> rows = new ArrayList<>();
+        for (JudgedQuestion question : questions(stored)) {
+            rows.add(new Generation(stored.quizId(), stored.configurationId(), stored.requestKey(), stored.repetition(), question.item().title(), true, question.decision()));
+        }
+        for (JudgedQuestion question : rejected(stored)) {
+            rows.add(new Generation(stored.quizId(), stored.configurationId(), stored.requestKey(), stored.repetition(), question.item().title(), false, question.decision()));
+        }
+        return rows;
     }
 
     /**
@@ -78,6 +106,14 @@ public class QuizView {
 
     private List<JudgedQuestion> questions(StoredQuiz stored) {
         return mapper.readValue(stored.quizJson(), new TypeReference<List<JudgedQuestion>>() {
+        });
+    }
+
+    private List<JudgedQuestion> rejected(StoredQuiz stored) {
+        if (stored.rejectedJson() == null || stored.rejectedJson().isBlank()) {
+            return List.of();
+        }
+        return mapper.readValue(stored.rejectedJson(), new TypeReference<List<JudgedQuestion>>() {
         });
     }
 }

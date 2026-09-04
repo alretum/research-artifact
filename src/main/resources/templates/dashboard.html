@@ -83,6 +83,7 @@
                 <span class="pill" th:if="${!r.running()} and ${r.complete()} and ${r.total() > 0}">complete</span>
                 <span class="pill warn" th:if="${!r.running()} and !${r.complete()} and ${r.total() > 0}">outstanding</span>
                 <span class="pill" th:if="${r.total() == 0} and ${r.quizzes() > 0}">sweep</span>
+                <span class="pill" th:if="${#strings.startsWith(r.runId(), 'pool-')}">pool</span>
                 <span class="muted" th:if="${r.description() != null}" th:text="' — ' + ${r.description()}"></span>
             </div>
             <div>

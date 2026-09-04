@@ -147,4 +147,37 @@ class RunStorePoolTest {
     private long idOf(int index) {
         return store.browse("run1", CELL.key(), null, 100).stream().filter(summary -> summary.itemIndex() == index).findFirst().orElseThrow().id();
     }
+
+    @Test
+    void browsePool_listsPoolItemsIncludingFailedGenerations() {
+        store.registerRun("pool-local", "pool|local", "manifest");
+        store.enqueuePool(List.of(new PoolItem(new ItemKey("pool-local", "pool|local", CELL.key(), 0), CELL, 0, "gen-local"),
+                new PoolItem(new ItemKey("pool-local", "pool|local", CELL.key(), 1), CELL, 1, "gen-local")));
+        var generation = store.claimNext("pool-local").orElseThrow();
+        store.recordGenerated(generation.key(), "{\"title\":\"Duality\"}", "{}", "[]");
+        var judging = store.claimNext("pool-local").orElseThrow();
+        store.recordFiltered(judging.key(), "{\"accepted\":true}", "[]");
+        store.recordVerdict(store.rowIdOf(judging.key()).orElseThrow(), "judge-local", "GENERAL", true, "{}", null);
+        var failing = store.claimNext("pool-local").orElseThrow();
+        store.recordFailure(failing.key(), ItemState.GENERATING, "VALIDATION_VIOLATION", "[]", false);
+
+        List<RunStore.PoolItemSummary> items = store.browsePool(10);
+
+        assertThat(items).hasSize(2);
+        assertThat(items).extracting(RunStore.PoolItemSummary::state).containsExactlyInAnyOrder(ItemState.FILTERED, ItemState.FAILED_GENERATION);
+        RunStore.PoolItemSummary judged = items.stream().filter(item -> item.state() == ItemState.FILTERED).findFirst().orElseThrow();
+        assertThat(judged.title()).isEqualTo("Duality");
+        assertThat(judged.competencyKey()).isEqualTo("arrays");
+        assertThat(judged.generatorModel()).isEqualTo("gen-local");
+        assertThat(judged.acceptVerdicts()).isEqualTo(1);
+        assertThat(judged.totalVerdicts()).isEqualTo(1);
+    }
+
+    @Test
+    void quizzesOfApproach_returnsOnlyThatApproach() {
+        store.saveQuiz(new RunStore.StoredQuiz("q1", "s1", "agentic|cloud|cloud", "EIDI", "r1", 1, true, "[]", "[]", "[]"));
+        store.saveQuiz(new RunStore.StoredQuiz("q2", "s1", "two-phase|local|cloud", "EIDI", "r1", 1, true, "[]", "[]", "[]"));
+
+        assertThat(store.quizzesOfApproach("agentic")).extracting(RunStore.StoredQuiz::quizId).containsExactly("q1");
+    }
 }

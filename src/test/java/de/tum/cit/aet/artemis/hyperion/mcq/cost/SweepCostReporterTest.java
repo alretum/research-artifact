@@ -126,7 +126,7 @@ class SweepCostReporterTest {
     }
 
     private void saveQuiz(String configurationId, String quizId, List<CallRecord> calls) throws IOException {
-        store.saveQuiz(new StoredQuiz(quizId, "s1", configurationId, "EIDI", "r1", 1, true, "[]", mapper.writeValueAsString(calls)));
+        store.saveQuiz(new StoredQuiz(quizId, "s1", configurationId, "EIDI", "r1", 1, true, "[]", "[]", mapper.writeValueAsString(calls)));
     }
 
     private void seedPoolItem(List<CallRecord> calls) throws IOException {

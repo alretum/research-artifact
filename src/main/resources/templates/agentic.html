@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: page('Agentic', ~{::body-content})}">
+<body>
+<th:block th:fragment="body-content">
+    <h2>Agentic generations</h2>
+    <div class="card">
+        <p class="muted" style="margin:0">
+            <span th:text="${accepted}"></span> of <span th:text="${#lists.size(generations)}"></span>
+            request-time generations entered a quiz. Rejected rows are recorded only for quizzes assembled
+            since rejected questions were persisted; earlier quizzes list their accepted questions alone.
+        </p>
+    </div>
+
+    <div class="card">
+        <p class="muted" th:if="${#lists.isEmpty(generations)}">No agentic quizzes yet. Run a sweep with an agentic configuration.</p>
+        <table th:unless="${#lists.isEmpty(generations)}">
+            <tr><th>Title</th><th>Quiz</th><th>Configuration</th><th>Request</th><th>Rep</th><th>Score</th><th>Decision</th></tr>
+            <tr th:each="g : ${generations}">
+                <td th:text="${g.title()} ?: '(untitled)'"></td>
+                <td><a th:href="@{'/quizzes/' + ${g.quizId()}}" th:text="${g.quizId()}"></a></td>
+                <td class="muted" th:text="${g.configurationId()}"></td>
+                <td class="muted" th:text="${g.requestKey()}"></td>
+                <td class="muted" th:text="${g.repetition()}"></td>
+                <td th:text="${g.decision() != null} ? ${#numbers.formatDecimal(g.decision().aggregateScore(),1,2)} : '—'"></td>
+                <td>
+                    <span th:if="${g.accepted()}" class="ok">accepted</span>
+                    <span th:unless="${g.accepted()}" class="bad">rejected</span>
+                </td>
+            </tr>
+        </table>
+    </div>
+</th:block>
+</body>
+</html>

@@ -48,7 +48,7 @@ class SweepExporterTest {
         store = new RunStore(directory.resolve("run.db"));
         store.registerRun("sweep1", "sweep", "manifest");
         store.saveQuiz(new StoredQuiz("sweep1-agentic-r1", "sweep1", "agentic|local|local", "EIDI", "eidi-r1", 1, true,
-                mapper.writeValueAsString(List.of(judged(singleChoice()), judged(multipleChoice()))), "[]"));
+                mapper.writeValueAsString(List.of(judged(singleChoice()), judged(multipleChoice()))), "[]", "[]"));
     }
 
     @AfterEach

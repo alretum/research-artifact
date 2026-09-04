@@ -133,7 +133,7 @@ public class SweepRunner {
                     Quiz quiz = generator.generate(request, context);
                     String quizId = plan.sweep() + "-" + configuration.id() + "-" + request.key() + "-r" + repetition;
                     dependencies.store().saveQuiz(new StoredQuiz(quizId, plan.sweep(), configuration.configurationId(), request.courseKey(), request.key(), repetition,
-                            quiz.complete(), mapper.writeValueAsString(quiz.accepted()), mapper.writeValueAsString(quiz.calls())));
+                            quiz.complete(), mapper.writeValueAsString(quiz.accepted()), mapper.writeValueAsString(quiz.rejected()), mapper.writeValueAsString(quiz.calls())));
                     assembled++;
                     log.info("Assembled {} [{}/{}] ({} of {} questions{})", quizId, position, total, quiz.accepted().size(), request.numberOfQuestions(),
                             quiz.complete() ? "" : ", INCOMPLETE");

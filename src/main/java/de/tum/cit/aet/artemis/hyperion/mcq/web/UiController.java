@@ -531,6 +531,36 @@ public class UiController {
         return "readiness";
     }
 
+    /**
+     * Show every pool question across all pool runs, including failed generations.
+     *
+     * @param model view model
+     * @return the pool view
+     */
+    @GetMapping("/pool")
+    public String pool(Model model) {
+        List<RunStore.PoolItemSummary> items = store.browsePool(BROWSE_LIMIT);
+        model.addAttribute("items", items);
+        model.addAttribute("generated", items.stream().filter(item -> item.title() != null).count());
+        model.addAttribute("failed", items.stream().filter(item -> item.title() == null).count());
+        model.addAttribute("competencies", items.stream().map(RunStore.PoolItemSummary::competencyKey).distinct().count());
+        return "pool";
+    }
+
+    /**
+     * Show every question the agentic approach generated at request time, accepted or rejected.
+     *
+     * @param model view model
+     * @return the agentic generations view
+     */
+    @GetMapping("/agentic")
+    public String agentic(Model model) {
+        List<QuizView.Generation> generations = store.quizzesOfApproach("agentic").stream().flatMap(stored -> quizView.generations(stored).stream()).toList();
+        model.addAttribute("generations", generations);
+        model.addAttribute("accepted", generations.stream().filter(QuizView.Generation::accepted).count());
+        return "agentic";
+    }
+
     @GetMapping("/quizzes")
     public String quizzes(@RequestParam(required = false) String sweep, Model model) {
         List<String> sweeps = store.quizRunIds();
