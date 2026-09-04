@@ -3,6 +3,7 @@ package de.tum.cit.aet.artemis.hyperion.mcq.app;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -50,6 +51,7 @@ import de.tum.cit.aet.artemis.hyperion.mcq.ingest.PageChunker;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.TopicCatalogue;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.TopicCatalogue.Topic;
 import de.tum.cit.aet.artemis.hyperion.mcq.retrieval.EmbeddingSnippetSource;
+import de.tum.cit.aet.artemis.hyperion.mcq.store.ItemState;
 import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore;
 import de.tum.cit.aet.artemis.hyperion.mcq.telemetry.CompositionReporter;
 import de.tum.cit.aet.artemis.hyperion.mcq.telemetry.FailureReporter;
@@ -145,7 +147,7 @@ public class PipelineRunner implements ApplicationRunner {
         if (!args.containsOption("count") && !args.containsOption("resume") && !args.containsOption("report") && !args.containsOption("sweep")
                 && !args.containsOption("cost") && !args.containsOption("plan") && !args.containsOption("run-plan") && !args.containsOption("export-benchmark")
                 && !args.containsOption("doctor") && !args.containsOption("redecide") && !args.containsOption("experiment") && !args.containsOption("export-experiment")
-                && !args.containsOption("experiment-cost")
+                && !args.containsOption("experiment-cost") && !args.containsOption("experiment-status")
                 && !args.containsOption("retrieval-only")) {
             log.info("No command argument given; the web interface is available at http://localhost:8080");
             return;
@@ -170,6 +172,10 @@ public class PipelineRunner implements ApplicationRunner {
         }
         if (args.containsOption("experiment")) {
             runExperiment(Path.of(args.getOptionValues("experiment").getFirst()));
+            return;
+        }
+        if (args.containsOption("experiment-status")) {
+            experimentStatus(Path.of(args.getOptionValues("experiment-status").getFirst()));
             return;
         }
         if (args.containsOption("export-experiment")) {
@@ -390,6 +396,36 @@ public class PipelineRunner implements ApplicationRunner {
                     new SweepRunner.Dependencies(manifests, indexed.source(), groundingAssembly, generation, filter, agentic, twoPhase, store, registry, properties));
             int assembled = runner.run(hashes);
             log.info("Sweep {} complete: {} quizzes newly assembled, {} stored in total", plan.sweep(), assembled, store.quizzes(plan.sweep()).size());
+        }
+    }
+
+    /**
+     * Print how far a sweep has progressed, without issuing a model call.
+     * <p>
+     * Reads the same database the sweep writes, so it can run in a second terminal while the sweep is
+     * running.
+     *
+     * @param sweepFile the sweep plan
+     */
+    private void experimentStatus(Path sweepFile) {
+        SweepPlan plan = SweepPlan.load(sweepFile);
+        List<GenerationRequest> requests = RequestFileReader.read(Path.of(plan.requestsFile()));
+        try (RunStore store = new RunStore(Path.of(properties.batch().databasePath()))) {
+            StringBuilder out = new StringBuilder();
+            List<String> generators = plan.configurations().stream().filter(configuration -> configuration.approach() == SweepPlan.Approach.TWO_PHASE)
+                    .map(SweepPlan.Configuration::generator).distinct().toList();
+            for (String generatorKey : generators) {
+                out.append("pool-").append(generatorKey).append(": ").append(ItemState.progress(store.stateCounts("pool-" + generatorKey))).append('\n');
+            }
+            Map<String, Integer> storedByConfiguration = new LinkedHashMap<>();
+            plan.configurations().forEach(configuration -> storedByConfiguration.put(configuration.configurationId(), 0));
+            List<RunStore.StoredQuiz> stored = store.quizzes(plan.sweep());
+            stored.forEach(quiz -> storedByConfiguration.merge(quiz.configurationId(), 1, Integer::sum));
+            int perConfiguration = requests.size() * plan.repetitions();
+            storedByConfiguration
+                    .forEach((configurationId, count) -> out.append(configurationId).append(": ").append(count).append('/').append(perConfiguration).append(" quizzes\n"));
+            out.append("total: ").append(stored.size()).append('/').append(plan.configurations().size() * perConfiguration).append(" quizzes");
+            log.info("Sweep {} status:\n{}", plan.sweep(), out);
         }
     }
 

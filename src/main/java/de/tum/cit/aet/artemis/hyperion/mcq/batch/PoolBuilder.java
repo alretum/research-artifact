@@ -142,6 +142,7 @@ public class PoolBuilder {
      */
     public int build(ChatClient generatorClient, ChatClient judgeClient) {
         store.releaseStaleClaims(settings.runId());
+        log.info("Pool {} build: {}", settings.runId(), ItemState.progress(store.stateCounts(settings.runId())));
         int completed = 0;
         while (true) {
             var claim = store.claimNext(settings.runId());
@@ -155,6 +156,7 @@ public class PoolBuilder {
                 judge(claim.get(), judgeClient);
             }
             completed++;
+            log.info("Pool {}: {}", settings.runId(), ItemState.progress(store.stateCounts(settings.runId())));
         }
     }
 
@@ -170,8 +172,11 @@ public class PoolBuilder {
      */
     public int judgeWith(String judgeModel, double temperature, int maxAttempts, ChatClient client) {
         int judged = 0;
+        int visited = 0;
         List<UnjudgedItem> missing = store.itemsMissingVerdict(judgeModel, FilterScope.GENERAL.name(), Integer.MAX_VALUE);
+        log.info("Judge {} starts on {} unjudged items", judgeModel, missing.size());
         for (UnjudgedItem unjudged : missing) {
+            visited++;
             PoolCell cell = PoolCell.fromKey(unjudged.cellKey());
             GroundingContext grounding = ground(cell, unjudged.sectionIndex());
             McqItem item = read(unjudged.itemJson());
@@ -183,6 +188,7 @@ public class PoolBuilder {
             }
             store.recordVerdict(unjudged.id(), judgeModel, FilterScope.GENERAL.name(), result.decision().accepted(), write(result.decision()), write(List.of(result.call())));
             judged++;
+            log.info("Judge {}: {}/{} items, {} decided", judgeModel, visited, missing.size(), judged);
         }
         log.info("Judge {} decided {} of {} unjudged items", judgeModel, judged, missing.size());
         return judged;

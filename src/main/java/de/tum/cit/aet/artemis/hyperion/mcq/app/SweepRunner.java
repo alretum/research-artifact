@@ -117,11 +117,15 @@ public class SweepRunner {
 
     private int assembleQuizzes() {
         JsonMapper mapper = StructuredOutputs.outputMapper();
+        int total = plan.configurations().size() * requests.size() * plan.repetitions();
+        log.info("Assembling quizzes: {} of {} already stored", dependencies.store().quizzes(plan.sweep()).size(), total);
+        int position = 0;
         int assembled = 0;
         for (SweepPlan.Configuration configuration : plan.configurations()) {
             QuizGenerator generator = configuration.approach() == SweepPlan.Approach.AGENTIC ? dependencies.agentic() : dependencies.twoPhase();
             for (GenerationRequest request : requests) {
                 for (int repetition = 1; repetition <= plan.repetitions(); repetition++) {
+                    position++;
                     if (dependencies.store().quizExists(plan.sweep(), configuration.configurationId(), request.key(), repetition)) {
                         continue;
                     }
@@ -131,7 +135,8 @@ public class SweepRunner {
                     dependencies.store().saveQuiz(new StoredQuiz(quizId, plan.sweep(), configuration.configurationId(), request.courseKey(), request.key(), repetition,
                             quiz.complete(), mapper.writeValueAsString(quiz.accepted()), mapper.writeValueAsString(quiz.calls())));
                     assembled++;
-                    log.info("Assembled {} ({} of {} questions{})", quizId, quiz.accepted().size(), request.numberOfQuestions(), quiz.complete() ? "" : ", INCOMPLETE");
+                    log.info("Assembled {} [{}/{}] ({} of {} questions{})", quizId, position, total, quiz.accepted().size(), request.numberOfQuestions(),
+                            quiz.complete() ? "" : ", INCOMPLETE");
                 }
             }
         }

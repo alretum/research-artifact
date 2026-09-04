@@ -86,12 +86,24 @@ directly.
 
 What happens, in order: the corpus is indexed (cached after the first run), the sweep is registered with a
 fingerprint of its inputs, the pool is built cell by cell, extra judges add their verdicts, and then every
-configuration answers every request `repetitions` times. Progress is logged per item and per quiz.
+configuration answers every request `repetitions` times. Every completed unit logs an aggregate progress
+line (`Pool pool-local: 14/32 done, 2 awaiting judge, 15 to generate, 1 failed`), each extra judge counts
+its verdicts as it works, and quiz assembly logs its position (`[7/24]`).
+
+To check progress from a second terminal — or after the run, without starting it again:
+
+```bash
+./gradlew bootRun --args='--experiment-status=config/sweeps/smoke.yml'
+```
+
+It prints each pool's state counts and the stored quizzes per configuration, makes no model call, and is
+safe to run while the sweep is running.
 
 Properties of the run worth relying on:
 
 - **Kill it any time.** Re-running the same command resumes: finished pool items and stored quizzes are
-  skipped, and an unchanged sweep re-run makes no model calls at all.
+  skipped, and an unchanged sweep re-run makes no model calls at all. An item that was mid-call when the
+  process died is released on the next start and redone, so at most one model call is repeated.
 - **A changed sweep is refused.** Editing requests, repetitions or the course model after the first run
   fails with "was created with a different configuration" — rename the sweep to start fresh.
 - **The sweep name is the run id.** Everything lands in `data/run.db` under it.
