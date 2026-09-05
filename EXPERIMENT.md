@@ -6,8 +6,8 @@ This walkthrough goes from a fresh checkout to inspecting quizzes in the browser
 benchmark handoff. It uses one local model throughout so it runs on a laptop; scaling to real
 configurations is a matter of catalogue entries and the sweep file, not code.
 
-Prerequisites: steps 1–6 of `README.md` — a JDK, the embedding model, an API key or the local fallback,
-and lecture material in `corpus/` with a competency manifest.
+Prerequisites: the Setup section of `README.md` — the embedding model, an API key or the local fallback,
+and lecture material in `corpus/` with a competency manifest. `--doctor` verifies all of it.
 
 ## 1. Point the pipeline at a model
 

@@ -1,391 +1,178 @@
 # mcq-pipeline
 
-Turns lecture material into grounded multiple-choice questions, filters them, and exports them for
-independent quality evaluation.
+Turns lecture material into grounded multiple-choice questions with two competing approaches — **agentic**
+(generate on demand, filter, top up) and **two-phase** (pre-build a judged question pool, select from it) —
+and exports the assembled quizzes for independent quality evaluation.
 
 It has no runtime dependency on Artemis, Pyris or Logos code. It needs a directory of lecture PDFs, one
-chat model, and one embedding model. After the first setup, everything runs in the browser.
+chat backend, and one local embedding model.
 
-**A second model can be added, and a second backend with it — but only one path is proven.** Generation and
-filtering take the model as a call parameter, so adding another model on a backend already configured is a
-single entry in `config/models.yml` and no code. A model on a *new* backend gets its own client, built from
-that backend's base URL and the key named in its `api-key-env`.
-
-How far that has actually been exercised, stated precisely:
-
-- **Another model on the existing Logos backend** — works, no code needed. Not yet run, because the models
-  exist on Logos but have to be granted to your key.
-- **A second OpenAI-compatible backend** — the client-building path is exercised with real calls, but only
-  against Logos declared twice. Never against a genuinely different provider, so treat OpenAI, vLLM or
-  another institution's endpoint as untested rather than broken.
-- **Azure OpenAI specifically** — expected *not* to work as written. Azure authenticates with an `api-key`
-  header rather than `Authorization: Bearer`, and uses a different URL shape and an API version; the SDK
-  ships `AzureApiKeyCredential`, `AzureUrlPathMode` and `AzureOpenAIServiceVersion` for exactly this, none
-  of which the client factory uses. It needs a small addition, not a rewrite.
-
-**Quality is not measured here.** This pipeline's own filter is part of what is being tested, and it
-currently runs on the same model as the generator, so its accept rate partly measures the model agreeing
-with itself. Independent measurement comes from
+**Quality is not measured here.** The pipeline's own filter is part of what is being tested, so it cannot
+also be the measuring instrument. Independent scores come from
 [`ls1intum/paper-al-quiz-generation-benchmark`](https://github.com/ls1intum/paper-al-quiz-generation-benchmark),
-which this tool exports for. Step 7 covers the item export. Full experiments — both approaches over a
-request list — run as sweeps: [`EXPERIMENT.md`](./EXPERIMENT.md) is the walkthrough, and
-[`BENCHMARK.md`](./BENCHMARK.md) the scoring handoff.
+which this tool exports for: [`BENCHMARK.md`](./BENCHMARK.md) is the scoring handoff.
 
 ---
 
-# Part 1 — First run, start to finish
+## Setup — three steps
 
-Eight steps from an empty checkout to a JSON export. Steps 1–4 are once per machine; 5–8 are the loop you
-repeat.
-
-## 1. Install a JDK 25
-
-Non-negotiable: the code uses Java 25 language features and the build pins `languageVersion = 25`. Gradle
-resolves the toolchain independently of the JDK it runs on, but there is no auto-provisioning, so a JDK 25
-must be installed and discoverable.
-
-On macOS without Homebrew, the Temurin tarball needs no administrator rights:
+**1. Build.** Any JDK 17+ on the PATH is enough to launch Gradle; the build downloads JDK 25 itself.
 
 ```bash
-# check the current version and its published digest first:
-#   curl -s https://api.github.com/repos/adoptium/temurin25-binaries/releases/latest
-curl -L -o jdk25.tar.gz \
-  https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.4.1%2B1/OpenJDK25U-jdk_aarch64_mac_hotspot_25.0.4.1_1.tar.gz
-shasum -a 256 jdk25.tar.gz          # compare against the published digest
-
-mkdir -p ~/Library/Java/JavaVirtualMachines
-tar -xzf jdk25.tar.gz -C ~/Library/Java/JavaVirtualMachines/
-export JAVA_HOME=$(/usr/libexec/java_home -v 25)
+./gradlew build
 ```
 
-Put that `export` in `~/.zshenv` rather than `~/.zshrc` — `~/.zshrc` runs only for interactive shells, so
-scripts and IDE-launched builds would still get whichever JDK is default.
-
-Verify: `./gradlew -q javaToolchains` must list a `Language Version: 25` entry.
-
-## 2. Install the embedding model
-
-Embeddings run locally on CPU. `nomic-embed-text` is ~137M parameters, so CPU is fine, and it keeps the
-corpus off a remote service. On macOS without Homebrew, use the CLI tarball rather than the desktop app —
-no administrator rights, no GUI, no login item:
+**2. Embedding model.** Embeddings run locally on CPU via [Ollama](https://ollama.com):
 
 ```bash
-curl -L -o ollama-darwin.tgz \
-  https://github.com/ollama/ollama/releases/download/v0.32.15/ollama-darwin.tgz
-shasum -a 256 ollama-darwin.tgz     # compare against the release's published digest
-
-mkdir -p ~/.local/ollama ~/.local/bin
-tar -xzf ollama-darwin.tgz -C ~/.local/ollama/
-ln -sf ~/.local/ollama/ollama ~/.local/bin/ollama
-
 ollama serve &                      # binds 127.0.0.1:11434
 ollama pull nomic-embed-text        # 274 MB
 ```
 
-The archive is a flat set of binaries with co-located shared libraries, so extract it into its own
-directory and symlink only the `ollama` entry point — moving the binary alone breaks library resolution.
-`ollama serve` does not survive a reboot when installed this way; restart it, or add a LaunchAgent.
-
-## 3. Set the API key
-
-Chat — generation and filtering — runs on TUM's Logos GPUs. Two templates are committed; copy each into
-place and edit the copy. Neither copy is tracked.
+**3. API key.** Chat — generation, judging, selection — runs on TUM's Logos GPUs:
 
 ```bash
 cp config/logos-env.example ~/.logos-env && chmod 600 ~/.logos-env
 $EDITOR ~/.logos-env                 # set LOGOS_API_KEY
-source ~/.logos-env
+source ~/.logos-env                  # or add this line to ~/.zshenv
 ```
 
-**The key belongs in the environment, never in a file inside the repository.** Re-source it in every new
-shell, or add `source ~/.logos-env` to `~/.zshenv`.
+The key lives in the environment, never in a file inside the repository. Logos is reachable only from the
+TUM network or eduVPN, and your key must be granted the models it should use.
 
-Logos is not reachable from the public internet: the host resolves but refuses connections from outside
-TUM, so you need campus network or eduVPN. Without it, chat calls fail while embedding keeps working.
-
-Your key must also be *granted* the model. If `GET /v1/models` lists fewer models than you expect, that is
-a permissions matter for whoever administers Logos, not a configuration problem.
-
-## 4. Build and start
+**Verify** — one command checks every prerequisite and says how to fix whatever is missing:
 
 ```bash
-./gradlew build                      # compiles and runs the test suite
-java --enable-native-access=ALL-UNNAMED -jar build/libs/mcq-pipeline-0.1.0-SNAPSHOT.jar
+./gradlew bootRun --args='--doctor'
 ```
 
-The first build downloads the whole Spring Boot 4.1 / Spring AI 2.0 dependency tree and takes several
-minutes; later builds are seconds. `data/` is created on first use, so there is nothing to prepare.
+## Run an experiment — three steps
 
-With no command argument the web interface starts. Open <http://localhost:8080>.
+The full walkthrough with a worked example is [`EXPERIMENT.md`](./EXPERIMENT.md); this is the short form.
 
-**It has no authentication and is bound to loopback by default.** Do not change that binding: exposed,
-anyone could spend your model budget and read lecture material you may not hold redistribution rights to.
-Reach a remote instance through an SSH tunnel (`ssh -L 8080:localhost:8080 …`), never a public port.
+**1. Add material.** One folder per course under `corpus/`, one competency catalogue per course
+(`mcq.competency-manifest` in `application.yml` points at it — the committed `config/competencies.yml`
+serves the development corpus).
 
-## 5. Check Setup
+**2. Declare what to run.** A request file (what quizzes to ask for) and a sweep file (which
+configurations answer them, and the pool dimensions). The committed `config/requests/logos-test.yml` and
+`config/sweeps/logos-test.yml` are working examples to copy.
 
-Open **Setup**. It checks every prerequisite and, for each one that is not satisfied, says what to do:
+**3. Run it.**
 
-```
-[ok  ] Java: 25.0.3
-[ok  ] Corpus: 70 PDF(s) under corpus
-[ok  ] Embedding model: nomic-embed-text available at http://localhost:11434/v1
-[ok  ] Local model API key: $LOGOS_API_KEY set (145 characters)
-[ok  ] Local model: openai/gpt-oss-120b available at https://logos.aet.cit.tum.de/v1
-[warn] Cloud model: none declared
+```bash
+./gradlew bootRun --args='--experiment=config/sweeps/logos-test.yml --as=my-run'
 ```
 
-Fix anything marked `FAIL` before going on — those are the things that make generation fail. `warn` rows
-are informational. The same checklist is available on the command line as `--doctor`.
+`--as=<name>` makes the run fully independent: it runs under that name against its own database
+(`data/run-<name>.db`), sharing no pools, verdicts or quizzes with any other run. Kill it any time —
+re-running the same command resumes where it stopped, and a finished run re-run makes no model calls.
+Progress is logged per item and per quiz; from a second terminal:
 
-Three tiers appear here, named as the thesis names them: the **embedding model** on this machine, the
-**local model** on chair-hosted Logos GPUs, and optionally a **cloud model** from a commercial provider.
-
-## 6. Add lecture material
-
-Open **Corpus**. Upload a folder, or a zip of folders. Nothing enters the corpus until you confirm it: the
-upload is staged first and you get an extraction preview showing pages, inferred role, detected language and
-suspected extraction damage per file.
-
-**Upload folders, not loose files.** The first directory level names the lecture, and that name appears in
-every citation. A flat selection of files has no lecture and shows as `(root)`.
-
-```
-corpus/
-├── 01 Linear Programming - Modeling/
-│   ├── 2 Linear programming.pdf
-│   ├── CE 1 Solution.pdf
-│   └── Tutorial 1 Exercises.pdf
-└── 02 Linear Programming - Simplex/
-    └── ...
+```bash
+./gradlew bootRun --args='--experiment-status=config/sweeps/logos-test.yml --as=my-run'
 ```
 
-Only PDFs are ingested; anything else in the upload is ignored. Committing drops the cached index, so the
-next run re-embeds — about a minute on Apple Silicon, several on two CPU cores.
+**Inspect and hand off.** `./gradlew bootRun --args='--mcq.batch.database-path=data/run-my-run.db'`
+serves the web interface on <http://localhost:8080> — quizzes, the question pool with each judge's
+independent verdict, and every agentic generation. Then:
 
-Topics do not come from the folder names. `config/competencies.yml` is the authority; see
-[Corpus conventions](#corpus-conventions) for why, and for how filenames determine a document's role.
+```bash
+./gradlew bootRun --args='--export-experiment=config/sweeps/logos-test.yml --as=my-run'   # benchmark input
+./gradlew bootRun --args='--experiment-cost=config/sweeps/logos-test.yml --as=my-run'     # € per configuration
+```
 
-## 7. Generate
-
-Open **Dashboard**. Choose topics (none selected means every grounded topic) and items per topic, then
-**Start run**. Progress is live.
-
-Optional per-run settings, each falling back to the configured default when left blank:
-
-| field | what it does |
-|---|---|
-| Difficulty ladder | Comma-separated, 0–100. Each topic walks the ladder independently, so four levels need four items per topic to be covered. |
-| Accept threshold | The score is 1 minus the worst severity among gating modes, so any gating mode above `1 − threshold` rejects the item. |
-| Generator / filter model | Only shown when more than one model is available. |
-
-For several generator/filter pairings in one go, use **Plans** instead — see
-[Run plans and the 2×2](#run-plans-and-the-22).
-
-## 8. Export
-
-Open **Export**. It shows how many items are available, then writes the benchmark's input format and
-downloads it as a zip containing `quizzes/`, `instructions/` and a `benchmark.yaml` already pointing at
-both.
-
-Two choices, both explained on the page: what becomes one quiz file, and which items to include. The
-defaults are right for most cases.
-
-**Fill in an evaluator model in `benchmark.yaml` before running it.** The generated config leaves it blank
-on purpose — a model that generated or filtered these items cannot independently judge them.
-
-That is the loop. Everything below is reference.
+The export lands in `data/benchmark/my-run/`; [`BENCHMARK.md`](./BENCHMARK.md) says what to send to whoever
+runs the benchmark and what must never reach the judge.
 
 ---
 
-# Part 2 — Reference
+## Reference
 
-## The web interface
+### Web interface
+
+Started by `./gradlew bootRun` with no command argument. **It has no authentication and is bound to
+loopback** — reach a remote instance through an SSH tunnel, never a public port.
 
 | page | what it is for |
 |---|---|
-| **Dashboard** | Corpus and pool summary, start/resume/stop a run, live progress |
-| **Corpus** | Upload lecture material, preview before committing, remove a lecture |
-| **Plans** | Create, run and delete multi-configuration plans |
-| **Export** | Write and download the benchmark input |
-| **Items** | Browse the pool by run, topic and decision; open an item; answer it |
+| **Dashboard** | Runs with live progress, corpus summary, start/resume/stop a single-model run |
+| **Corpus** | Upload lecture material with an extraction preview before committing |
+| **Items** | Browse generated questions by run, topic and decision; open one; answer it |
+| **Pool** | Every pool question with its labels and each judge's independent verdict |
+| **Agentic** | Every request-time generation of the agentic approach, accepted or rejected |
+| **Quizzes** | Assembled quizzes per sweep, with per-question filter decisions and export |
+| **Plans** | Multi-configuration generator×filter runs over the development corpus |
+| **Export** | Item-level benchmark export for single runs |
 | **Setup** | The prerequisite checklist |
 
-## Command line
+### Command line
 
-Any of these runs one task and exits; with no command argument the web interface starts instead.
+Each runs one task and exits; `--as=<name>` scopes the four experiment commands to an independent run.
 
 | command | what it does |
 |---|---|
-| `--count=N` | Generate N items, spread round-robin across topics, then filter each |
-| `--topic=KEY` | Restrict to one topic; repeatable |
-| `--resume=RUNID` | Resume an interrupted run with the settings it started with |
-| `--plan=FILE` | Validate a run plan and print what it would run. Generates nothing |
-| `--run-plan=FILE` | Run every configuration in a plan, one after another |
-| `--report` | Grounding composition and requested difficulty against item quality |
-| `--sweep` | Accept rate and per-mode trigger rates across thresholds |
-| `--cost` | Cost per configuration from recorded calls |
-| `--redecide` | Recompute stored decisions under the current threshold and gating modes |
-| `--export-benchmark=DIR` | Write the benchmark input format |
-| `--retrieval-only` | Index and probe retrieval; no generation calls |
+| `--experiment=FILE` | Run a sweep: build pools, judge, assemble every configured quiz. Resumable |
+| `--experiment-status=FILE` | Print pool and quiz progress without a model call; safe while running |
+| `--export-experiment=FILE` | Write the benchmark input for a sweep |
+| `--experiment-cost=FILE` | Price every configuration and pool from recorded calls; break-even quiz count |
 | `--doctor` | The prerequisite checklist |
+| `--count=N`, `--resume=ID` | Single-model generation runs (the Dashboard's CLI equivalent) |
+| `--plan=FILE`, `--run-plan=FILE` | Validate / run a generator×filter plan |
+| `--report`, `--sweep`, `--cost`, `--redecide` | Reports over stored results; no model calls |
+| `--export-benchmark=DIR` | Item-level benchmark export |
+| `--retrieval-only` | Index and probe retrieval; no generation calls |
 
-Everything except `--count`, `--resume` and `--run-plan` makes no model calls, so reporting and exporting
-are free and repeatable.
+### Models and configuration
 
-`--count=N` is **N items in total**, distributed round-robin across topics — not N per topic. With fewer
-items than topics, only the first N topics get one each, in `competencies.yml` order.
+`config/models.yml` separates **backends** (base URL plus the *name* of the environment variable holding
+the key) from **models** (provider model id plus which backend serves it). A new model on an existing
+backend is one catalogue entry; a new backend additionally needs its key in the environment. Azure OpenAI
+is expected *not* to work as written (different credential type). Sweep files refer to models by their
+catalogue keys.
 
-## Model backends
+Defaults bind to `LOGOS_BASE_URL`, `LOGOS_API_KEY`, `LOGOS_MODEL` and `EMBEDDING_BASE_URL`; for offline
+development, `--spring.profiles.active=ollama` puts chat on Ollama too — never use it for timed or costed
+claims. Every tunable lives under `mcq.*` in `application.yml`.
 
-`config/models.yml` separates **backends** (a base URL and the *name* of the environment variable holding
-its key) from **models** (a provider model id and which backend serves it). That split is why one backend
-serves any number of models: the model name travels with each request.
+### Corpus conventions
 
-| tier | where | default |
-|---|---|---|
-| local model — generation, filtering | Logos GPUs | `${LOGOS_BASE_URL}`, model `${LOGOS_MODEL}` |
-| embedding model | Ollama on this machine | `http://localhost:11434/v1`, `nomic-embed-text` |
-| cloud model | a commercial provider | not configured |
+Only PDFs are ingested, recursively. The first directory level names the lecture and appears in every
+citation; the filename names the unit and determines the recorded source role (solution, tutorial, central
+exercise, lecture deck). Extraction is deliberately unrepaired; per-document damage counts land in
+`data/extraction-report.csv`. Topics and competencies come from the competency catalogue, never from
+folder names; the declared Bloom taxonomy and description are exported as `bloom_intended` and
+`learning_objective` for the benchmark.
 
-Adding a **second model on an existing backend** is one catalogue entry and no code. Adding a model on a
-**new backend** additionally needs its key in the environment; the tool builds that backend's client itself,
-using a bearer token. See the note at the top of this file for how far each of those has been tested —
-Azure in particular needs a different credential type that is not implemented.
+### The filter
 
-| variable | default | notes |
-|---|---|---|
-| `LOGOS_API_KEY` | `unset` | Required. With the placeholder, calls fail with 401 |
-| `LOGOS_BASE_URL` | `https://logos.aet.cit.tum.de/v1` | |
-| `LOGOS_MODEL` | `openai/gpt-oss-120b` | Must match an id from `GET /v1/models` exactly |
-| `EMBEDDING_BASE_URL` | `http://localhost:11434/v1` | |
+Every generated question is judged per failure mode with recorded severities. Only the modes in
+`mcq.filter.gating-modes` decide acceptance — the aggregate is `1 − worst gating severity`, so any gating
+mode can reject alone. `NEAR_DUPLICATE` is deliberately non-gating: recall-level questions are legitimate
+for REMEMBER competencies, and the benchmark measures cognitive level downstream. Rejected questions are
+kept with their verdicts, so filtered-versus-unfiltered comparisons cost nothing. In pools, every judge
+records an **independent** verdict per question; a configuration only ever uses its own judge's column.
 
-Two alternative profiles: `--spring.profiles.active=ollama` puts chat on Ollama too, for offline
-development only — nothing timed against a local development model belongs in a cost or quality claim.
-`config/application-local.yml` holds machine-specific settings, but note it is **profile-specific**: it
-applies only with `--spring.profiles.active=local`. Only `application.yml` is picked up from `./config/` on
-its own.
+### Where output goes
 
-## Run plans and the 2×2
-
-A plan runs several generator/filter pairings over the same topics from one button. Create one on the
-**Plans** page by choosing generator models and filter models; every generator is paired with every filter,
-so two of each gives the four cells of a 2×2.
-
-Cells run one after another, not concurrently: the model server is the scarce resource, and concurrent
-cells inflate each other's per-call latency so no cell's timings can be reported. The page shows the total
-item count before you start, and takes an items-per-topic override so a plan can be tried cheaply first.
-
-Each cell gets its own run id and carries the plan's configuration id, so cells never collide and
-`--cost`, `--report` and the export all group by configuration.
-
-The cells where one model judges another are the only ones whose accept rate is not partly a model agreeing
-with itself. A plan whose every cell is self-judging is flagged as such.
-
-## Corpus conventions
-
-**Only PDFs are ingested.** The loader walks the corpus recursively and filters on the `.pdf` extension;
-HTML, notebooks and video are silently ignored.
-
-**The first directory level is the lecture, the filename is the unit.** The unit name appears in grounding
-citations as `[source – unit]`.
-
-Extraction is deliberately unrepaired — text is indexed exactly as PDFBox returns it, ligature damage and
-all. Three things happen automatically: pages under 40 characters are treated as text-poor and excluded
-but counted; pages whose text has already been seen verbatim anywhere in the corpus are skipped, which
-removes repeated boilerplate; and unreadable PDFs are logged and skipped rather than failing the load.
-
-**Filenames determine the source role**, checked in this order, case-insensitively:
-
-| matches | role |
-|---|---|
-| contains `solution`, `loesung`, `lösung` | `SOLUTION` |
-| starts with `ce `, or contains `central exercise`, `demoaufgaben` | `CENTRAL_EXERCISE` |
-| contains `tutorial`, `uebungsaufgaben`, `übungsaufgaben` | `TUTORIAL` |
-| starts with a digit then a space or underscore (`5 Linear programming.pdf`) | `LECTURE_DECK` |
-| anything else | `OTHER` |
-
-Roles are **recorded, not used for weighting** — retrieval stays uniform. The heuristic is filename-only,
-so it misses what the names do not say: on the reference corpus it classifies 68 of 70 documents, missing a
-central-exercise deck not starting with `ce ` and a tutorial sheet saying "Exercise Sheet". Check your own
-distribution in `data/extraction-report.csv` after the first index.
-
-**Topics come from `config/competencies.yml`**, not from folder names — folder names encode a delivery
-schedule rather than a topic taxonomy. Each competency declares a title, a retrieval query, a Bloom
-`taxonomy`, and the documents it links to; a topic with no linked material is reported as ungrounded and
-skipped. The declared taxonomy is exported as `bloom_intended`, and the description as
-`learning_objective`, which is what the benchmark's cognitive-level and objective-alignment metrics judge
-against.
-
-## The filter
-
-Five failure modes are judged on every item and recorded with per-mode severities: `FACTUAL_ERROR`,
-`AMBIGUOUS_CORRECT_ANSWER`, `OFF_TOPIC`, `NEAR_DUPLICATE`, `ILL_FORMED_DISTRACTORS`.
-
-Only the modes in `mcq.filter.gating-modes` decide acceptance, and the aggregate is `1 − worst severity
-among those`, so **any gating mode can reject an item on its own**. `NEAR_DUPLICATE` is deliberately not in
-the default set: for a grounded generator, resembling the material is unavoidable, and one competency in
-the reference corpus is declared at `taxonomy: REMEMBER`, where a recall question is correct by design. It
-is still judged and exported, just not acted on.
-
-Rejected items are kept with their verdicts, so comparing filtered against unfiltered costs nothing.
-`--redecide` recomputes every stored decision under the current threshold and gating set, with no model
-calls, since the severities are already stored.
-
-## Where output goes
-
-Everything below `data/` is gitignored.
+Everything under `data/` is gitignored and regenerable.
 
 | path | contents |
 |---|---|
-| `data/run.db` | SQLite store: runs, items, answer attempts. Authoritative |
-| `data/run-log.jsonl` | One JSON record per completed item. Replaced on each export |
-| `data/items.md` | Human-readable rendering of each item |
-| `data/index.json` | Cached embedding index. Deleted automatically when the corpus changes |
-| `data/benchmark/` | The most recent benchmark export |
-| `data/extraction-report.csv`, `data/topics.csv`, `data/retrieval-probe.csv` | Ingestion diagnostics |
+| `data/run.db` | Default SQLite store: items, verdicts, quizzes, document hashes. Authoritative |
+| `data/run-<name>.db` | The isolated store of a `--as=<name>` run |
+| `data/benchmark/<sweep>/` | Benchmark exports: public quizzes, intent files, private sidecars |
+| `data/index.json` | Cached embedding index, rebuilt when the corpus changes |
+| `data/*.csv`, `data/run-log.jsonl`, `data/items.md` | Ingestion diagnostics and item renderings |
 
-Items are keyed `(run_id, configuration_id, topic_key, item_index)`, so a run killed with `kill -9` and
-resumed produces no duplicates and loses nothing.
+Run stores are per-machine; do not copy them between machines. Prices in `config/pricing.yml` are applied
+at report time, never at write time — revising a price is a re-report, not a re-run.
 
-Run stores are per-machine. Do not copy `data/run.db` between machines — mixing two machines' runs in one
-store makes the run manifest meaningless.
+### Known limitations
 
-## Cost reporting
-
-`--cost` groups by configuration and reports cost per generated item and per *accepted* item, the second
-being the one that compares configurations: a configuration that generates cheaply but is rejected often is
-not cheap. Failed calls count, because they were paid for.
-
-Prices come from `config/pricing.yml` and are applied at report time, never during a run, so revising a
-price is a re-report rather than a re-run. Token-billed models give an exact figure. Time-billed models
-give a **band** between the electricity and rental rates, derived from client wall-clock — which overstates
-occupancy because it includes queueing and network time. Both rates in `pricing.yml` are placeholders until
-the hardware and tariff are known, so treat those figures as order-of-magnitude bounds rather than results.
-
-## Evidence for the thesis
-
-`evidence/` is the one data directory kept in git: it holds run artefacts cited in `THESIS_NOTES.md`, so a
-claim can be traced to the output supporting it. Add one by copying the relevant record out of `data/` under
-a name beginning with the finding it supports:
-
-```bash
-cp data/run-log.jsonl evidence/n4-token-counts.jsonl
-```
-
-## Known limitations
-
-- **No quality evaluation here** — by design. `--report` covers grounding composition, requested difficulty
-  and the filter's own verdicts; independent scores come from the benchmark.
-- **Generator and filter share a model** in the default configuration, so accept rate is partly
-  self-agreement. A second model in `config/models.yml` fixes this; the models exist on Logos but need to
-  be granted to your key.
-- **Concurrency defaults to 1** and should stay there for any run whose cost or latency you intend to
-  report: concurrent calls inflate per-call latency and make wall-clock-derived cost double-count.
-- **Cost figures are bounds, not measurements**, until the GPU rates in `pricing.yml` are real.
-- **Only PDFs are ingested**, and `SourceRole.NOTEBOOK` is consequently unreachable.
-- **No authentication** on the web interface. Loopback binding and an SSH tunnel are the mitigation, not a
-  solution; anything beyond single-user local access needs real authentication first.
-- **`corpus/manifest.yml` does not exist** and the current `.gitignore` cannot express it: the rule is
-  `corpus/`, which ignores the directory outright, so committing a manifest would need `corpus/*` plus
-  `!corpus/manifest.yml`.
+- No quality evaluation here, by design — the benchmark measures quality independently.
+- Concurrency stays at 1 for any run whose cost or latency will be reported.
+- Cost figures for time-billed models are bounds from client wall-clock, not GPU measurements.
+- Only one OpenAI-compatible backend shape is proven end to end (Logos); treat other providers as
+  untested, and Azure as needing a small addition.
+- No authentication on the web interface; loopback plus SSH tunnel is the mitigation.
