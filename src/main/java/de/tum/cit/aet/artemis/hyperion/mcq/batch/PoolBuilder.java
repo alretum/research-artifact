@@ -161,7 +161,8 @@ public class PoolBuilder {
      */
     public int build(ChatClient generatorClient, ChatClient judgeClient) {
         store.releaseStaleClaims(settings.runId());
-        log.info("Pool {} build: {}", settings.runId(), ItemState.progress(store.stateCounts(settings.runId())));
+        log.info("Pool {} build: generator {}, judge {} — {}", settings.runId(), settings.generatorModel(), settings.judgeModel(),
+                ItemState.progress(store.stateCounts(settings.runId())));
         int completed = 0;
         while (true) {
             var claim = store.claimNext(settings.runId());
