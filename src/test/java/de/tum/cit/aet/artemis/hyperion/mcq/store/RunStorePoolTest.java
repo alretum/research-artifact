@@ -174,6 +174,20 @@ class RunStorePoolTest {
     }
 
     @Test
+    void switchTo_movesTheStoreBetweenDatabases() {
+        store.saveQuiz(new RunStore.StoredQuiz("q1", "s1", "agentic|m|m", "EIDI", "r1", 1, true, "[]", "[]", "[]"));
+
+        store.switchTo(directory.resolve("other.db"));
+
+        assertThat(store.databasePath().getFileName().toString()).isEqualTo("other.db");
+        assertThat(store.quizzes("s1")).isEmpty();
+
+        store.switchTo(directory.resolve("run.db"));
+
+        assertThat(store.quizzes("s1")).hasSize(1);
+    }
+
+    @Test
     void quizzesOfApproach_returnsOnlyThatApproach() {
         store.saveQuiz(new RunStore.StoredQuiz("q1", "s1", "agentic|cloud|cloud", "EIDI", "r1", 1, true, "[]", "[]", "[]"));
         store.saveQuiz(new RunStore.StoredQuiz("q2", "s1", "two-phase|local|cloud", "EIDI", "r1", 1, true, "[]", "[]", "[]"));

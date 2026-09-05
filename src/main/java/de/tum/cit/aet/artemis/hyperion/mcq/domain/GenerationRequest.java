@@ -19,12 +19,12 @@ import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.QuestionType;
  * @param competencyKeys    competencies to assess, empty in free-topic mode
  * @param optionalPrompt    extra instructions, at most 2000 characters, or {@code null}
  * @param questionTypes     question types the quiz may contain
- * @param numberOfQuestions questions to produce, from 1 to 10
+ * @param numberOfQuestions questions to produce, from 1 to 20
  */
 public record GenerationRequest(String key, String courseKey, String topic, List<String> competencyKeys, String optionalPrompt, Language language, Set<QuestionType> questionTypes,
         int numberOfQuestions, Difficulty difficulty) {
 
-    private static final int MAX_QUESTIONS = 10;
+    private static final int MAX_QUESTIONS = 20;
 
     private static final int MAX_OPTIONAL_PROMPT_LENGTH = 2000;
 

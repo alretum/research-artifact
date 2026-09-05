@@ -31,7 +31,9 @@ public class RunStore implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(RunStore.class);
 
-    private final Connection connection;
+    private Connection connection;
+
+    private Path database;
 
     /**
      * Open or create the store at the given path.
@@ -40,21 +42,57 @@ public class RunStore implements AutoCloseable {
      * @throws IllegalStateException if the database cannot be opened or migrated
      */
     public RunStore(Path database) {
+        this.connection = open(database);
+        this.database = database;
+    }
+
+    /**
+     * Switches this store to another database file, migrating it when needed.
+     * <p>
+     * The new file is opened and migrated before the old connection is released, so a failure leaves the
+     * store on its current database. Callers holding a reference to this instance see the new database from
+     * the moment this method returns.
+     *
+     * @param target SQLite file to switch to; its parent directories are created when absent
+     * @throws IllegalStateException if the target cannot be opened or migrated
+     */
+    public synchronized void switchTo(Path target) {
+        Connection replacement = open(target);
+        Connection previous = this.connection;
+        this.connection = replacement;
+        this.database = target;
+        try {
+            previous.close();
+        }
+        catch (SQLException e) {
+            log.warn("Could not close the previous store at {}", database, e);
+        }
+    }
+
+    /**
+     * @return the database file this store currently reads and writes
+     */
+    public synchronized Path databasePath() {
+        return database;
+    }
+
+    private Connection open(Path database) {
         try {
             Path parent = database.toAbsolutePath().getParent();
             if (parent != null) {
                 java.nio.file.Files.createDirectories(parent);
             }
-            this.connection = DriverManager.getConnection("jdbc:sqlite:" + database);
-            this.connection.setAutoCommit(true);
-            migrate();
+            Connection opened = DriverManager.getConnection("jdbc:sqlite:" + database);
+            opened.setAutoCommit(true);
+            migrate(opened);
+            return opened;
         }
         catch (SQLException | java.io.IOException e) {
             throw new IllegalStateException("Failed to open run store at " + database, e);
         }
     }
 
-    private void migrate() throws SQLException {
+    private void migrate(Connection connection) throws SQLException {
         try (Statement statement = connection.createStatement()) {
             statement.executeUpdate("PRAGMA journal_mode=WAL");
             statement.executeUpdate("""
@@ -124,22 +162,22 @@ public class RunStore implements AutoCloseable {
                         PRIMARY KEY (course_key, document)
                     )""");
         }
-        addColumnIfMissing("item", "difficulty", "INTEGER NOT NULL DEFAULT 50");
-        addColumnIfMissing("item", "course_key", "TEXT");
-        addColumnIfMissing("item", "competency_key", "TEXT");
-        addColumnIfMissing("item", "language", "TEXT");
-        addColumnIfMissing("item", "question_type", "TEXT");
-        addColumnIfMissing("item", "difficulty_band", "TEXT");
-        addColumnIfMissing("item", "section_index", "INTEGER");
-        addColumnIfMissing("item", "generator_model", "TEXT");
-        addColumnIfMissing("verdict", "calls_json", "TEXT");
-        addColumnIfMissing("quiz", "rejected_json", "TEXT");
+        addColumnIfMissing(connection, "item", "difficulty", "INTEGER NOT NULL DEFAULT 50");
+        addColumnIfMissing(connection, "item", "course_key", "TEXT");
+        addColumnIfMissing(connection, "item", "competency_key", "TEXT");
+        addColumnIfMissing(connection, "item", "language", "TEXT");
+        addColumnIfMissing(connection, "item", "question_type", "TEXT");
+        addColumnIfMissing(connection, "item", "difficulty_band", "TEXT");
+        addColumnIfMissing(connection, "item", "section_index", "INTEGER");
+        addColumnIfMissing(connection, "item", "generator_model", "TEXT");
+        addColumnIfMissing(connection, "verdict", "calls_json", "TEXT");
+        addColumnIfMissing(connection, "quiz", "rejected_json", "TEXT");
         try (Statement statement = connection.createStatement()) {
             statement.executeUpdate("CREATE INDEX IF NOT EXISTS pool_lookup ON item (course_key, competency_key, language, question_type, difficulty_band)");
         }
     }
 
-    private void addColumnIfMissing(String table, String column, String type) throws SQLException {
+    private static void addColumnIfMissing(Connection connection, String table, String column, String type) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?")) {
             statement.setString(1, table);
             statement.setString(2, column);

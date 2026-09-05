@@ -1,0 +1,48 @@
+# One 20-question quiz per competency (16 of them), every configuration, one repetition.
+#
+# Pool arithmetic: 16 cells x 20 items = 320 items per generator pool, x2 generators = 640 items,
+# each generated once and judged by both judges -> ~1,920 pool calls before retries. Quiz assembly adds
+# 32 agentic quizzes (1 generation + 20 judgings each) and 64 two-phase selections plus top-up rounds
+# where a judge rejects too much. Expect several thousand calls and multiple hours end to end.
+sweep: subtopics
+requests-file: config/requests/subtopics.yml
+repetitions: 1
+pool:
+  items-per-cell: 20
+  subsections: 5
+  retrieval-top-m: 15
+  languages: [en]
+  question-types: [single-choice]
+  difficulties: [medium]
+selection:
+  max-candidates: 40
+  temperature: 0.7
+  max-attempts: 3
+  top-up-rounds: 3
+agentic:
+  max-rounds: 4
+configurations:
+  - id: agentic-local
+    approach: agentic
+    generator: local
+    judge: local
+  - id: agentic-cloud
+    approach: agentic
+    generator: cloud
+    judge: cloud
+  - id: two-phase-local-local
+    approach: two-phase
+    generator: local
+    judge: local
+  - id: two-phase-local-cloud
+    approach: two-phase
+    generator: local
+    judge: cloud
+  - id: two-phase-cloud-local
+    approach: two-phase
+    generator: cloud
+    judge: local
+  - id: two-phase-cloud-cloud
+    approach: two-phase
+    generator: cloud
+    judge: cloud

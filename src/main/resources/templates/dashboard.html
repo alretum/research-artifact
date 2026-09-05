@@ -73,6 +73,14 @@
     </div>
 
     <h2>Runs</h2>
+    <form method="post" th:action="@{/store}" class="muted" style="display:flex; gap:.5rem; align-items:center; font-size:.85rem; margin-bottom:.6rem">
+        <span>Store</span>
+        <select name="file">
+            <option th:each="s : ${stores}" th:value="${s}" th:text="${s}" th:selected="${s == currentStore}"></option>
+        </select>
+        <button type="submit" th:if="${#lists.size(stores) > 1}">Switch</button>
+        <span th:if="${#lists.size(stores) > 1}">— every page reads the selected store; each <code>--as</code> run has its own</span>
+    </form>
     <div class="card" th:if="${#lists.isEmpty(runs)}"><span class="muted">No runs yet.</span></div>
     <div class="card" th:each="r : ${runs}" th:attr="data-run=${r.runId()}">
         <div style="display:flex; justify-content:space-between; align-items:baseline; gap:1rem">

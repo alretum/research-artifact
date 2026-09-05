@@ -40,9 +40,9 @@ class GenerationRequestTest {
     }
 
     @Test
-    void constructor_rejectsAQuestionCountOutsideOneToTen() {
-        assertThatThrownBy(() -> new GenerationRequest("r1", "EIDI", "Duality", null, null, Language.DE, Set.of(QuestionType.SINGLE_CHOICE), 11, Difficulty.MEDIUM))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("11");
+    void constructor_rejectsAQuestionCountOutsideOneToTwenty() {
+        assertThatThrownBy(() -> new GenerationRequest("r1", "EIDI", "Duality", null, null, Language.DE, Set.of(QuestionType.SINGLE_CHOICE), 21, Difficulty.MEDIUM))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("21");
     }
 
     @Test

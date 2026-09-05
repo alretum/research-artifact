@@ -1,5 +1,6 @@
 package de.tum.cit.aet.artemis.hyperion.mcq.web;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -113,6 +114,9 @@ public class UiController {
         model.addAttribute("threshold", properties.filter().acceptThreshold());
         model.addAttribute("runs", runs.runs());
         model.addAttribute("activeRunId", runs.activeRunId().orElse(null));
+        Path databasePath = store.databasePath();
+        model.addAttribute("currentStore", databasePath.getFileName().toString());
+        model.addAttribute("stores", storeFiles(databasePath));
         model.addAttribute("attemptCount", attempts.recorded());
         model.addAttribute("attemptsCorrect", attempts.correct());
         return "dashboard";
@@ -157,6 +161,53 @@ public class UiController {
     @ResponseBody
     public RunManager.Progress progress(@PathVariable String runId) {
         return runs.progress(runId);
+    }
+
+    /**
+     * Switch the whole interface to another run store in the same directory — a named {@code --as} run
+     * writes to its own sibling database.
+     *
+     * @param file  file name of the target database, offered by the dashboard
+     * @param flash feedback holder
+     * @return redirect to the dashboard
+     */
+    @PostMapping("/store")
+    public String switchStore(@RequestParam String file, RedirectAttributes flash) {
+        if (runs.activeRunId().isPresent()) {
+            flash.addFlashAttribute("error", "A run is executing; stop it before switching the store");
+            return "redirect:/";
+        }
+        if (!file.matches("[A-Za-z0-9._-]+\\.db")) {
+            flash.addFlashAttribute("error", "Not a database file name: " + file);
+            return "redirect:/";
+        }
+        Path target = store.databasePath().toAbsolutePath().getParent().resolve(file);
+        if (!Files.isRegularFile(target)) {
+            flash.addFlashAttribute("error", "No database at " + target);
+            return "redirect:/";
+        }
+        store.switchTo(target);
+        flash.addFlashAttribute("message", "Now reading " + target.getFileName());
+        return "redirect:/";
+    }
+
+    /**
+     * Every run store in the active store's directory, the active one included.
+     *
+     * @param active the database this server currently reads
+     * @return {@code .db} file names, sorted
+     */
+    private static List<String> storeFiles(Path active) {
+        Path parent = active.toAbsolutePath().getParent();
+        if (parent == null || !Files.isDirectory(parent)) {
+            return List.of(active.getFileName().toString());
+        }
+        try (Stream<Path> files = Files.list(parent)) {
+            return files.map(file -> file.getFileName().toString()).filter(name -> name.endsWith(".db")).sorted().toList();
+        }
+        catch (IOException e) {
+            return List.of(active.getFileName().toString());
+        }
     }
 
     /**
