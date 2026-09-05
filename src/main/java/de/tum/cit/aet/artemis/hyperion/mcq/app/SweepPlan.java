@@ -75,8 +75,10 @@ public record SweepPlan(String sweep, String requestsFile, int repetitions, Pool
      * @param maxCandidates most candidates one selection call may carry
      * @param temperature   selector sampling temperature; non-zero is what makes repetitions differ
      * @param maxAttempts   transport attempts per selection call including the first
+     * @param topUpRounds   pool-growth rounds allowed when the pool cannot fill a request; {@code 0}
+     *                      forbids request-time generation and returns the quiz incomplete
      */
-    public record Selection(int maxCandidates, double temperature, int maxAttempts) {
+    public record Selection(int maxCandidates, double temperature, int maxAttempts, int topUpRounds) {
     }
 
     /**
@@ -162,7 +164,7 @@ public record SweepPlan(String sweep, String requestsFile, int repetitions, Pool
     }
 
     private static Selection selection(Map<String, Object> node) {
-        return new Selection(integer(node, "max-candidates", 40), decimal(node, "temperature", 0.7), integer(node, "max-attempts", 3));
+        return new Selection(integer(node, "max-candidates", 40), decimal(node, "temperature", 0.7), integer(node, "max-attempts", 3), integer(node, "top-up-rounds", 3));
     }
 
     private static Agentic agentic(Map<String, Object> node) {

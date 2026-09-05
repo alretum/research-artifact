@@ -3,6 +3,7 @@ package de.tum.cit.aet.artemis.hyperion.mcq.app;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -24,6 +25,9 @@ import de.tum.cit.aet.artemis.hyperion.mcq.approach.QuizGenerator.SelectionSetti
 import de.tum.cit.aet.artemis.hyperion.mcq.approach.TwoPhaseApproach;
 import de.tum.cit.aet.artemis.hyperion.mcq.batch.PoolBuilder;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.GenerationRequest;
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.CallRecord;
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.QuestionType;
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.PoolCell;
 import de.tum.cit.aet.artemis.hyperion.mcq.filter.McqFilterService;
 import de.tum.cit.aet.artemis.hyperion.mcq.generation.McqGenerationService;
 import de.tum.cit.aet.artemis.hyperion.mcq.grounding.GroundingAssemblyService;
@@ -131,6 +135,9 @@ public class SweepRunner {
                     }
                     ApproachContext context = context(configuration, request);
                     Quiz quiz = generator.generate(request, context);
+                    if (!quiz.complete() && configuration.approach() == SweepPlan.Approach.TWO_PHASE) {
+                        quiz = topUp(configuration, request, context, quiz);
+                    }
                     String quizId = plan.sweep() + "-" + configuration.id() + "-" + request.key() + "-r" + repetition;
                     dependencies.store().saveQuiz(new StoredQuiz(quizId, plan.sweep(), configuration.configurationId(), request.courseKey(), request.key(), repetition,
                             quiz.complete(), mapper.writeValueAsString(quiz.accepted()), mapper.writeValueAsString(quiz.rejected()), mapper.writeValueAsString(quiz.calls())));
@@ -141,6 +148,50 @@ public class SweepRunner {
             }
         }
         return assembled;
+    }
+
+    /**
+     * Grow the pool until it can fill the request, then select again.
+     * <p>
+     * Each round enqueues the shortfall into the request's cells, generates and judges the new items as
+     * regular pool entries — with the requesting configuration's judge as the build judge — and repeats the
+     * selection. New items stay in the pool for later requests; other judges add their verdicts on the next
+     * sweep run. After {@code selection.topUpRounds} unsuccessful rounds the quiz stays incomplete.
+     *
+     * @return the final quiz, carrying the selection calls of every round
+     */
+    private Quiz topUp(SweepPlan.Configuration configuration, GenerationRequest request, ApproachContext context, Quiz quiz) {
+        int rounds = plan.selection().topUpRounds();
+        if (rounds == 0) {
+            return quiz;
+        }
+        ResolvedModel generator = dependencies.models().resolve(configuration.generator());
+        ResolvedModel judge = dependencies.models().resolve(configuration.judge());
+        PoolBuilder builder = new PoolBuilder(dependencies.store(), poolSettings(configuration.generator(), request.courseKey(), generator, judge),
+                new PoolBuilder.Dependencies(manifestOf(request.courseKey()), dependencies.snippets(), dependencies.groundingAssembly(), dependencies.generation(),
+                        dependencies.filter(), dependencies.store()));
+        List<PoolCell> cells = new ArrayList<>();
+        for (String competencyKey : request.competencyKeys()) {
+            for (QuestionType type : request.questionTypes()) {
+                cells.add(new PoolCell(request.courseKey(), competencyKey, request.language(), type, request.difficulty()));
+            }
+        }
+
+        List<CallRecord> calls = new ArrayList<>(quiz.calls());
+        for (int round = 1; round <= rounds && !quiz.complete(); round++) {
+            int missing = request.numberOfQuestions() - quiz.accepted().size();
+            int perCell = Math.max(1, (int) Math.ceil((double) missing / cells.size()));
+            int enqueued = builder.grow(cells, perCell);
+            int completed = builder.build(generator.client(), judge.client());
+            log.info("Top-up round {}/{} for {} / {}: {} missing, {} items enqueued, {} units completed", round, rounds, configuration.configurationId(), request.key(),
+                    missing, enqueued, completed);
+            quiz = dependencies.twoPhase().generate(request, context);
+            calls.addAll(quiz.calls());
+        }
+        if (!quiz.complete()) {
+            log.warn("Request {} still incomplete for {} after {} top-up rounds", request.key(), configuration.configurationId(), rounds);
+        }
+        return new Quiz(quiz.accepted(), quiz.rejected(), List.copyOf(calls), quiz.generatedCount(), quiz.complete());
     }
 
     private ApproachContext context(SweepPlan.Configuration configuration, GenerationRequest request) {

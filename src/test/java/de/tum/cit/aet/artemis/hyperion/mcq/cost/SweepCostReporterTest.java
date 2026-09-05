@@ -117,7 +117,7 @@ class SweepCostReporterTest {
 
     private static SweepPlan plan() {
         return new SweepPlan("s1", "r.yml", 1, new SweepPlan.Pool(2, 2, 4, Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM)),
-                new SweepPlan.Selection(40, 0.7, 1), new SweepPlan.Agentic(3), List.of(new SweepPlan.Configuration("a", SweepPlan.Approach.AGENTIC, "cloud", "cloud", "cloud"),
+                new SweepPlan.Selection(40, 0.7, 1, 0), new SweepPlan.Agentic(3), List.of(new SweepPlan.Configuration("a", SweepPlan.Approach.AGENTIC, "cloud", "cloud", "cloud"),
                         new SweepPlan.Configuration("t", SweepPlan.Approach.TWO_PHASE, "local", "cloud", "cloud")));
     }
 

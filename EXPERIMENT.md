@@ -104,6 +104,11 @@ Properties of the run worth relying on:
 - **Kill it any time.** Re-running the same command resumes: finished pool items and stored quizzes are
   skipped, and an unchanged sweep re-run makes no model calls at all. An item that was mid-call when the
   process died is released on the next start and redone, so at most one model call is repeated.
+- **An underfilled pool grows on demand.** When two-phase selection cannot fill a request, the sweep
+  generates the shortfall into the request's pool cells — labelled, subsection-grounded and judged at pool
+  entry like any other pool item — and selects again, up to `selection.top-up-rounds` times (default 3).
+  Setting it to `0` restores strict pool-only serving, and a quiz is stored incomplete only once the
+  rounds are exhausted. Top-up items stay in the pool for later requests.
 - **A changed sweep is refused.** Editing requests, repetitions or the course model after the first run
   fails with "was created with a different configuration" — rename the sweep to start fresh.
 - **The sweep name is the run id.** Everything lands in `data/run.db` under it.

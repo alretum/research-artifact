@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -36,6 +37,7 @@ import de.tum.cit.aet.artemis.hyperion.mcq.domain.Language;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.QuestionType;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.Snippet;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.SourceRole;
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.PoolCell;
 import de.tum.cit.aet.artemis.hyperion.mcq.filter.McqFilterService;
 import de.tum.cit.aet.artemis.hyperion.mcq.generation.McqGenerationService;
 import de.tum.cit.aet.artemis.hyperion.mcq.grounding.GroundingAssemblyService;
@@ -106,7 +108,42 @@ class SweepRunnerTest {
         assertThatThrownBy(() -> runner(plan(3)).run(Map.of("deck.pdf", "v1"))).isInstanceOf(IllegalStateException.class).hasMessageContaining("different configuration");
     }
 
+    @Test
+    void run_growsThePoolWhenItCannotFillARequest() {
+        SweepPlan plan = new SweepPlan("topup-sweep", "unused.yml", 1,
+                new SweepPlan.Pool(2, 2, 4, Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM)), new SweepPlan.Selection(40, 0.7, 1, 2),
+                new SweepPlan.Agentic(3), List.of(new SweepPlan.Configuration("two-phase-m", SweepPlan.Approach.TWO_PHASE, "m", "m", "m")));
+        GenerationRequest request = new GenerationRequest("r3", "EIDI", null, List.of("arrays"), null, Language.DE, Set.of(QuestionType.SINGLE_CHOICE), 3, Difficulty.MEDIUM);
+
+        int assembled = runner(plan, request).run(Map.of("deck.pdf", "v1"));
+
+        assertThat(assembled).isEqualTo(1);
+        RunStore.StoredQuiz quiz = store.quizzes("topup-sweep").getFirst();
+        assertThat(quiz.complete()).isTrue();
+        String cellKey = new PoolCell("EIDI", "arrays", Language.DE, QuestionType.SINGLE_CHOICE, Difficulty.MEDIUM).key();
+        assertThat(store.itemCountForTopic("pool-m", "pool|m", cellKey)).isEqualTo(3);
+    }
+
+    @Test
+    void run_leavesTheQuizIncompleteWhenTopUpIsDisabled() {
+        SweepPlan plan = new SweepPlan("no-topup-sweep", "unused.yml", 1,
+                new SweepPlan.Pool(2, 2, 4, Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM)), new SweepPlan.Selection(40, 0.7, 1, 0),
+                new SweepPlan.Agentic(3), List.of(new SweepPlan.Configuration("two-phase-m", SweepPlan.Approach.TWO_PHASE, "m", "m", "m")));
+        GenerationRequest request = new GenerationRequest("r3", "EIDI", null, List.of("arrays"), null, Language.DE, Set.of(QuestionType.SINGLE_CHOICE), 3, Difficulty.MEDIUM);
+
+        runner(plan, request).run(Map.of("deck.pdf", "v1"));
+
+        RunStore.StoredQuiz quiz = store.quizzes("no-topup-sweep").getFirst();
+        assertThat(quiz.complete()).isFalse();
+        String cellKey = new PoolCell("EIDI", "arrays", Language.DE, QuestionType.SINGLE_CHOICE, Difficulty.MEDIUM).key();
+        assertThat(store.itemCountForTopic("pool-m", "pool|m", cellKey)).isEqualTo(2);
+    }
+
     private SweepRunner runner(SweepPlan plan) {
+        return runner(plan, new GenerationRequest("r1", "EIDI", null, List.of("arrays"), null, Language.DE, Set.of(QuestionType.SINGLE_CHOICE), 1, Difficulty.MEDIUM));
+    }
+
+    private SweepRunner runner(SweepPlan plan, GenerationRequest request) {
         PromptTemplateService templates = new PromptTemplateService();
         McqGenerationService generation = new McqGenerationService(templates);
         McqFilterService filter = new McqFilterService(templates);
@@ -115,7 +152,6 @@ class SweepRunnerTest {
         ModelCatalogue catalogue = new ModelCatalogue(Map.of("main", new ModelCatalogue.Backend("main", "http://localhost/v1", "PATH", true)),
                 Map.of("m", new ModelCatalogue.ModelEntry("m", "main", "test-model")));
         ModelRegistry registry = new ModelRegistry(catalogue, ChatClient.create(model));
-        GenerationRequest request = new GenerationRequest("r1", "EIDI", null, List.of("arrays"), null, Language.DE, Set.of(QuestionType.SINGLE_CHOICE), 1, Difficulty.MEDIUM);
         PipelineProperties properties = properties();
         return new SweepRunner(plan, List.of(request), new SweepRunner.Dependencies(Map.of("EIDI", manifest()), snippets, grounding, generation, filter,
                 new AgenticApproach(grounding, generation, filter), new TwoPhaseApproach(store, new PoolSelectionService(templates)), store, registry, properties));
@@ -123,7 +159,7 @@ class SweepRunnerTest {
 
     private static SweepPlan plan(int repetitions) {
         return new SweepPlan("test-sweep", "unused.yml", repetitions,
-                new SweepPlan.Pool(2, 2, 4, Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM)), new SweepPlan.Selection(40, 0.7, 1),
+                new SweepPlan.Pool(2, 2, 4, Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM)), new SweepPlan.Selection(40, 0.7, 1, 0),
                 new SweepPlan.Agentic(3), List.of(new SweepPlan.Configuration("agentic-m", SweepPlan.Approach.AGENTIC, "m", "m", "m"),
                         new SweepPlan.Configuration("two-phase-m", SweepPlan.Approach.TWO_PHASE, "m", "m", "m")));
     }
@@ -140,8 +176,11 @@ class SweepRunnerTest {
         String text = prompt.getContents();
         if (text.contains("## Candidates")) {
             Matcher matcher = CANDIDATE_ID.matcher(text.substring(text.indexOf("## Candidates")));
-            matcher.find();
-            return response("{ \"chosen\": [" + matcher.group(1) + "], \"rejected\": [], \"rationale\": \"fits\" }");
+            List<String> ids = new ArrayList<>();
+            while (matcher.find()) {
+                ids.add(matcher.group(1));
+            }
+            return response("{ \"chosen\": [" + String.join(", ", ids) + "], \"rejected\": [], \"rationale\": \"fits\" }");
         }
         if (text.contains("COMPETENCY_MISMATCH")) {
             return response(verdictJson(true));

@@ -133,6 +133,25 @@ public class PoolBuilder {
     }
 
     /**
+     * Enqueue additional items for the given cells, continuing each cell's item numbering.
+     *
+     * @param cells      cells to grow
+     * @param additional items to add per cell
+     * @return the number of rows newly created
+     */
+    public int grow(List<PoolCell> cells, int additional) {
+        List<PoolItem> items = new ArrayList<>();
+        for (PoolCell cell : cells) {
+            int existing = store.itemCountForTopic(settings.runId(), settings.configurationId(), cell.key());
+            for (int index = existing; index < existing + additional; index++) {
+                items.add(new PoolItem(new ItemKey(settings.runId(), settings.configurationId(), cell.key(), index), cell, index % settings.subsections(),
+                        settings.generatorModel()));
+            }
+        }
+        return store.enqueuePool(items);
+    }
+
+    /**
      * Work the pool build to completion: generate every pending item and judge every generated one with the
      * build's own judge.
      *
