@@ -66,7 +66,7 @@ class SweepExporterTest {
 
         assertThat(json).doesNotContain("explanation").doesNotContain("agentic|local|local").doesNotContain("source_reference");
         assertThat(quiz.get("quiz_id")).isEqualTo("sweep1-agentic-r1");
-        assertThat(quiz.get("source_material")).isEqualTo("EIDI");
+        assertThat(quiz.get("source_material")).isEqualTo("EIDI/arrays");
         assertThat(quiz.get("instructions")).isEqualTo("eidi-r1.json");
         List<Map<String, Object>> questions = questions(quiz);
         assertThat(questions).hasSize(2);
@@ -126,6 +126,16 @@ class SweepExporterTest {
     }
 
     @Test
+    void export_writesTheMaterialManifestForEveryScopedPath() throws IOException {
+        exporter.export(store, "sweep1", List.of(request()), manifests(), directory.resolve("out"));
+
+        String manifest = Files.readString(directory.resolve("out/material-manifest.yaml"));
+
+        assertThat(manifest).contains("\"EIDI/arrays\":");
+        assertThat(manifest).contains("01_Arrays.pdf");
+    }
+
+    @Test
     void export_writesARunnableBenchmarkConfig() throws IOException {
         exporter.export(store, "sweep1", List.of(request()), manifests(), directory.resolve("out"));
 
@@ -152,7 +162,8 @@ class SweepExporterTest {
 
     private static Map<String, CompetencyManifest> manifests() {
         return Map.of("EIDI", new CompetencyManifest(new Course("EIDI", "EIDI", ""),
-                List.of(new Competency("arrays", "Arrays", "Du kannst Arrays erstellen.", null, Taxonomy.APPLY, false, null, List.of(), List.of(), List.of()))));
+                List.of(new Competency("arrays", "Arrays", "Du kannst Arrays erstellen.", null, Taxonomy.APPLY, false, null,
+                        List.of(new CompetencyManifest.Link("01_Arrays.pdf", 1.0)), List.of(), List.of()))));
     }
 
     private static JudgedQuestion judged(McqItem item) {

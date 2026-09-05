@@ -23,6 +23,7 @@ The export lands in `data/benchmark/<sweep>/`:
 | `quizzes/*.json` | one public quiz per configuration × request × repetition | the benchmark and any rater |
 | `instructions/*.json` | one intent file per request, shared by every configuration answering it | the benchmark |
 | `benchmark.yaml` | a ready benchmark config with relative paths | the benchmark |
+| `material-manifest.yaml` | which course documents belong in each `source_material` folder | whoever assembles the material |
 | `sidecars/*.key.json` | **hidden labels**: provenance, the generating configuration, explanations, filter decisions | the analysis only — see §4 |
 
 The public files deliberately contain no explanation, no source reference wording, and no configuration
@@ -36,9 +37,13 @@ read** — it names which configuration generated each quiz, which is exactly th
 stay blind to. The sidecars go to the analysis holder separately (the key-holder role in the validation
 corpus's two-file model).
 
-The receiving side also needs the course slide PDFs, laid out one subdirectory per course key
-(`EIDI/`, `EIST/`, `PSE/`): each quiz's `source_material` names its course's subdirectory, and the
-`accuracy` and `coverage` metrics read the material from there.
+The receiving side also needs the course documents, laid out as `material-manifest.yaml` in the export
+prescribes: one folder per `<course>/<competency>` path, holding exactly the listed documents. Each
+quiz's `source_material` names its own competency's folder, and the benchmark loads that folder in full
+for every material-reading metric call (`accuracy`, `coverage`, `answer_key_correctness`,
+`distractor_quality`, `objective_alignment`). Keeping the folders competency-scoped is what keeps those
+calls inside the evaluator's context window — and it is what makes the `coverage` score meaningful: a
+quiz is judged against the material it was asked to cover, not the whole course.
 
 ## 3. Run the benchmark
 

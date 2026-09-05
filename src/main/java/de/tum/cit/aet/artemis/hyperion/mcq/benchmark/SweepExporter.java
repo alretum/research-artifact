@@ -10,6 +10,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TreeMap;
+import java.util.stream.Stream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -107,7 +109,7 @@ public class SweepExporter {
                 sidecarQuestions.put(questionId, sidecarQuestion(question, stored));
             }
 
-            BenchmarkQuiz quiz = new BenchmarkQuiz(stored.quizId(), title(request), stored.courseKey(), request.key() + ".json",
+            BenchmarkQuiz quiz = new BenchmarkQuiz(stored.quizId(), title(request), sourceMaterial(request), request.key() + ".json",
                     Map.of("learning_objectives", objectives(request, manifests)), publicQuestions);
             Path file = quizzes.resolve(stored.quizId() + ".json");
             writeJson(file, quiz);
@@ -117,8 +119,57 @@ public class SweepExporter {
         }
 
         writeConfig(directory, sweepId);
+        writeMaterialManifest(directory, requests, manifests);
         log.info("Exported {} quizzes of sweep {} to {}", written.size(), sweepId, directory);
         return List.copyOf(written);
+    }
+
+    /**
+     * The material path a quiz is evaluated against, relative to the benchmark's source directory.
+     * <p>
+     * A single-competency request is scoped to {@code <course>/<competency>}: the benchmark loads the whole
+     * folder behind this path into every material-reading metric call, so whole-course material overruns
+     * the evaluator's context window and makes the coverage metric judge against material the quiz never
+     * targeted. Requests naming several competencies fall back to the course folder.
+     */
+    private static String sourceMaterial(GenerationRequest request) {
+        if (request.competencyMode() && request.competencyKeys().size() == 1) {
+            return request.courseKey() + "/" + request.competencyKeys().getFirst();
+        }
+        return request.courseKey();
+    }
+
+    private void writeMaterialManifest(Path directory, List<GenerationRequest> requests, Map<String, CompetencyManifest> manifests) {
+        Map<String, List<String>> documents = new TreeMap<>();
+        for (GenerationRequest request : requests) {
+            String path = sourceMaterial(request);
+            if (documents.containsKey(path) || !request.competencyMode() || request.competencyKeys().size() != 1) {
+                continue;
+            }
+            manifests.get(request.courseKey()).byKey(request.competencyKeys().getFirst())
+                    .ifPresent(competency -> documents.put(path,
+                            Stream.concat(competency.lectureUnits().stream(), competency.exercises().stream()).map(CompetencyManifest.Link::document).distinct()
+                                    .sorted().toList()));
+        }
+        StringBuilder out = new StringBuilder("""
+                # How to assemble the benchmark's material directory.
+                #
+                # Each quiz's source_material names a folder below the benchmark's source_directory; the
+                # benchmark loads that folder in full for every material-reading metric call. Create one
+                # folder per key below and place exactly the listed course documents (paths relative to the
+                # course material root) inside it. A quiz whose source_material is a bare course key is
+                # evaluated against the whole course folder.
+                """);
+        documents.forEach((path, files) -> {
+            out.append('\n').append('"').append(path).append("\":\n");
+            files.forEach(file -> out.append("  - \"").append(file).append("\"\n"));
+        });
+        try {
+            Files.writeString(directory.resolve("material-manifest.yaml"), out.toString());
+        }
+        catch (IOException e) {
+            throw new UncheckedIOException("Failed to write the material manifest under " + directory, e);
+        }
     }
 
     private BenchmarkQuestion publicQuestion(String questionId, McqItem item, GenerationRequest request, Map<String, CompetencyManifest> manifests) {
@@ -244,8 +295,10 @@ public class SweepExporter {
 
                 inputs:
                   quiz_directory: "quizzes"
-                  # Point this at the directory holding the course slide PDFs, one subdirectory per course
-                  # key (EIDI/, EIST/, PSE/): each quiz's source_material names its course's subdirectory.
+                  # Point this at the material directory. Each quiz's source_material names a folder below
+                  # it — <course>/<competency> for single-competency quizzes — and the benchmark loads that
+                  # folder in full per material-reading call. material-manifest.yaml in this export lists
+                  # exactly which course documents belong in each folder.
                   source_directory: "<path to the course material>"
                   instructions_directory: "instructions"
 
