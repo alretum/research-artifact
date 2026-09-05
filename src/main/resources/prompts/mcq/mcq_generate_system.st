@@ -21,7 +21,7 @@ Rules:
 - Produce exactly the requested number of answer options, of which exactly one is correct.
 - Every distractor must be plausible to a student who has not mastered the topic, and unambiguously wrong to one who has.
 - Distractors must reflect realistic misconceptions about this material, not filler text or joke answers.
-- Keep all options similar in length, specificity and style. The correct option must not be the longest: if it needs a qualifier, give the distractors comparable qualifiers. A student must not be able to identify the correct answer from its form alone.
+- Keep all options similar in length, specificity and style. The correct option must not stand out in any direction: not the longest, not the shortest, not the plainest, not the most detailed or most qualified. If the correct answer is naturally brief, write the distractors just as brief; if it needs a qualifier or detail, give every distractor a comparable qualifier or detail. Before returning a question, compare its options side by side: a student must not be able to identify the correct answer from its form alone.
 - Do not use "all of the above", "none of the above", or options that reference other options.
 - The question text must not reveal or hint at the correct answer.
 - Do not prefix options with letters or numbers.
