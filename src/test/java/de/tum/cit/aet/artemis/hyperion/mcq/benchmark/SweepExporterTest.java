@@ -67,7 +67,7 @@ class SweepExporterTest {
         assertThat(json).doesNotContain("explanation").doesNotContain("agentic|local|local").doesNotContain("source_reference");
         assertThat(quiz.get("quiz_id")).isEqualTo("sweep1-agentic-r1");
         assertThat(quiz.get("source_material")).isEqualTo("EIDI");
-        assertThat(quiz.get("instructions")).isEqualTo("instructions/eidi-r1.json");
+        assertThat(quiz.get("instructions")).isEqualTo("eidi-r1.json");
         List<Map<String, Object>> questions = questions(quiz);
         assertThat(questions).hasSize(2);
         assertThat(questions.getFirst().get("question_id")).isEqualTo("IT0001");

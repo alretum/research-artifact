@@ -107,7 +107,7 @@ public class SweepExporter {
                 sidecarQuestions.put(questionId, sidecarQuestion(question, stored));
             }
 
-            BenchmarkQuiz quiz = new BenchmarkQuiz(stored.quizId(), title(request), stored.courseKey(), "instructions/" + request.key() + ".json",
+            BenchmarkQuiz quiz = new BenchmarkQuiz(stored.quizId(), title(request), stored.courseKey(), request.key() + ".json",
                     Map.of("learning_objectives", objectives(request, manifests)), publicQuestions);
             Path file = quizzes.resolve(stored.quizId() + ".json");
             writeJson(file, quiz);
@@ -224,18 +224,23 @@ public class SweepExporter {
                     temperature: 0.0
                     max_tokens: 2000
 
+                # Metric names and versions must match the benchmark's registry; an unknown name fails the
+                # run. Names below match the registry as of 2026-09; re-check after a benchmark update.
                 metrics:
-                  - {name: "accuracy", version: "1.0", evaluators: ["independent_judge"], enabled: true}
+                  - {name: "accuracy", version: "1.2", evaluators: ["independent_judge"], enabled: true}
                   - {name: "answer_key_correctness", version: "1.0", evaluators: ["independent_judge"], enabled: true}
                   - {name: "objective_alignment", version: "1.0", evaluators: ["independent_judge"], enabled: true}
                   - {name: "cognitive_level", version: "1.0", evaluators: ["independent_judge"], enabled: true}
-                  - {name: "clarity", version: "1.0", evaluators: ["independent_judge"], enabled: true}
-                  - {name: "distractor", version: "1.0", evaluators: ["independent_judge"], enabled: true}
+                  - {name: "clarity", version: "2.0", evaluators: ["independent_judge"], enabled: true}
+                  - {name: "distractor_quality", version: "2.0", evaluators: ["independent_judge"], enabled: true}
                   - {name: "absence_of_cueing", version: "1.0", evaluators: ["independent_judge"], enabled: true}
-                  - {name: "grammatic", version: "2.0", evaluators: ["independent_judge"], enabled: true}
-                  - {name: "difficulty", version: "1.0", evaluators: ["independent_judge"], enabled: true}
-                  - {name: "coverage", version: "1.1", evaluators: ["independent_judge"], enabled: true}
-                  - {name: "homogeneous_options", version: "1.0", evaluators: ["independent_judge"], enabled: true}
+                  - {name: "grammatical_correctness", version: "2.1", evaluators: ["independent_judge"], enabled: true}
+                  - {name: "difficulty", version: "1.2", evaluators: ["independent_judge"], enabled: true}
+                  - {name: "coverage", version: "1.6", evaluators: ["independent_judge"], enabled: true}
+                  - {name: "homogeneous_options", version: "2.0", evaluators: ["independent_judge"], enabled: true}
+                  - {name: "cross_item_redundancy", version: "1.0", evaluators: ["independent_judge"], enabled: false}
+                  - {name: "difficulty_spread", version: "1.0", evaluators: ["independent_judge"], enabled: false}
+                  - {name: "objective_balance", version: "1.0", evaluators: ["independent_judge"], enabled: false}
 
                 inputs:
                   quiz_directory: "quizzes"

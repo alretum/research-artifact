@@ -40,3 +40,7 @@ out/
 # Run artefacts cited in the thesis notes. Kept out of the repository because a run record
 # carries the full prompt text, which embeds verbatim lecture material (see corpus/ above).
 evidence/
+
+# nohup run logs and jar copies at the repo root
+*.log
+run.jar

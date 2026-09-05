@@ -130,11 +130,14 @@ A sweep does not need a live terminal. Build the jar once, then start it detache
 Gradle, and the pipeline's resumability means an interrupted run is continued, never restarted:
 
 ```bash
-./gradlew bootJar
+./gradlew bootJar && cp build/libs/mcq-pipeline-0.1.0-SNAPSHOT.jar run.jar
 source ~/.logos-env
-nohup java -jar build/libs/mcq-pipeline-0.1.0-SNAPSHOT.jar \
-      --experiment=config/sweeps/smoke.yml --as=my-run > sweep.log 2>&1 &
+nohup java -jar run.jar --experiment=config/sweeps/smoke.yml --as=my-run > sweep.log 2>&1 &
 ```
+
+Run from a copy of the jar, never from `build/libs/` directly: the JVM reads a Spring Boot jar lazily,
+so a `./gradlew build` that rewrites the jar under a running process makes later class loads fail with
+`ClassNotFoundException`.
 
 Log out; the run keeps going. Check on it from any later SSH session with
 `tail -f sweep.log` or the status command, both read-only.

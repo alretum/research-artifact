@@ -62,10 +62,13 @@ configurations answer them, and the pool dimensions). The committed `config/requ
 terminal and no standing SSH session**:
 
 ```bash
-./gradlew bootJar && source ~/.logos-env
-nohup java -jar build/libs/mcq-pipeline-0.1.0-SNAPSHOT.jar \
-      --experiment=config/sweeps/logos-test.yml --as=my-run > sweep.log 2>&1 &
+./gradlew bootJar && cp build/libs/mcq-pipeline-0.1.0-SNAPSHOT.jar run.jar
+source ~/.logos-env
+nohup java -jar run.jar --experiment=config/sweeps/logos-test.yml --as=my-run > sweep.log 2>&1 &
 ```
+
+(Run from the copy, not from `build/libs/` — a rebuild that rewrites the jar under a running process
+breaks its lazy class loading.)
 
 Log out; the run keeps going. **Every unit of work is persisted, so the run is fully resumable**: if the
 process dies — crash, reboot, `kill -9` — re-running the exact same command continues where it stopped, at
