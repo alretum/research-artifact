@@ -124,6 +124,52 @@ Properties of the run worth relying on:
   `--export-experiment` and `--experiment-cost`. To browse a named run in the web interface, start the
   server pointed at its database: `./gradlew bootRun --args='--mcq.batch.database-path=data/run-pilot-2.db'`.
 
+## Running unattended
+
+A sweep does not need a live terminal. Build the jar once, then start it detached — the jar runs without
+Gradle, and the pipeline's resumability means an interrupted run is continued, never restarted:
+
+```bash
+./gradlew bootJar
+source ~/.logos-env
+nohup java -jar build/libs/mcq-pipeline-0.1.0-SNAPSHOT.jar \
+      --experiment=config/sweeps/smoke.yml --as=my-run > sweep.log 2>&1 &
+```
+
+Log out; the run keeps going. Check on it from any later SSH session with
+`tail -f sweep.log` or the status command, both read-only.
+
+For a run that should also survive a VM reboot, use a systemd unit instead — on failure it restarts and
+the sweep resumes; on success it stays finished:
+
+```ini
+# /etc/systemd/system/mcq-sweep.service
+[Unit]
+Description=MCQ sweep
+After=network-online.target
+
+[Service]
+Type=exec
+User=<you>
+WorkingDirectory=/path/to/checkout
+EnvironmentFile=/home/<you>/.logos-env
+ExecStart=/usr/bin/java -jar build/libs/mcq-pipeline-0.1.0-SNAPSHOT.jar --experiment=config/sweeps/smoke.yml --as=my-run
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload && sudo systemctl start mcq-sweep
+journalctl -u mcq-sweep -f          # follow the log; Ctrl-C detaches, the run continues
+```
+
+The embedding model must be reachable on the same machine, so Ollama needs the same treatment
+(`ollama serve` under nohup, tmux, or its own unit). Note that `EnvironmentFile` does not expand shell
+syntax: `~/.logos-env` must contain plain `KEY=value` lines, no `export`.
+
 ## 5. Inspect the quizzes
 
 ```bash

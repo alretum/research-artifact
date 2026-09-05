@@ -58,20 +58,29 @@ serves the development corpus).
 configurations answer them, and the pool dimensions). The committed `config/requests/logos-test.yml` and
 `config/sweeps/logos-test.yml` are working examples to copy.
 
-**3. Run it.**
+**3. Run it.** On a VM, build the jar once and start the sweep with `nohup` — **it needs no open
+terminal and no standing SSH session**:
 
 ```bash
-./gradlew bootRun --args='--experiment=config/sweeps/logos-test.yml --as=my-run'
+./gradlew bootJar && source ~/.logos-env
+nohup java -jar build/libs/mcq-pipeline-0.1.0-SNAPSHOT.jar \
+      --experiment=config/sweeps/logos-test.yml --as=my-run > sweep.log 2>&1 &
 ```
 
-`--as=<name>` makes the run fully independent: it runs under that name against its own database
-(`data/run-<name>.db`), sharing no pools, verdicts or quizzes with any other run. Kill it any time —
-re-running the same command resumes where it stopped, and a finished run re-run makes no model calls.
-Progress is logged per item and per quiz; from a second terminal:
+Log out; the run keeps going. **Every unit of work is persisted, so the run is fully resumable**: if the
+process dies — crash, reboot, `kill -9` — re-running the exact same command continues where it stopped, at
+most one model call is repeated, finished work is never redone, and re-running a completed sweep makes no
+model calls at all. `--as=<name>` also makes the run independent: it runs under that name against its own
+database (`data/run-<name>.db`), sharing no pools, verdicts or quizzes with any other run.
+
+Follow progress with `tail -f sweep.log`, or read-only from any other shell:
 
 ```bash
-./gradlew bootRun --args='--experiment-status=config/sweeps/logos-test.yml --as=my-run'
+java -jar build/libs/mcq-pipeline-0.1.0-SNAPSHOT.jar --experiment-status=config/sweeps/logos-test.yml --as=my-run
 ```
+
+(On a workstation with the terminal open, `./gradlew bootRun --args='--experiment=… --as=…'` does the
+same thing attached.)
 
 **Inspect and hand off.** `./gradlew bootRun --args='--mcq.batch.database-path=data/run-my-run.db'`
 serves the web interface on <http://localhost:8080> — quizzes, the question pool with each judge's
@@ -122,6 +131,22 @@ Each runs one task and exits; `--as=<name>` scopes the four experiment commands 
 | `--report`, `--sweep`, `--cost`, `--redecide` | Reports over stored results; no model calls |
 | `--export-benchmark=DIR` | Item-level benchmark export |
 | `--retrieval-only` | Index and probe retrieval; no generation calls |
+
+### Sizing an experiment
+
+The pool grid is **competencies × languages × question types × difficulties**, each cell filled with
+`items-per-cell` questions — generated and judged once each, plus one judging pass per additional judge.
+That product is the bulk of the cost; widen it deliberately.
+
+| what it adjusts | file | key |
+|---|---|---|
+| questions per cell (competency × language × type × difficulty) | sweep | `pool.items-per-cell` |
+| which languages / question types / difficulties get cells | sweep | `pool.languages`, `pool.question-types`, `pool.difficulties` |
+| how a cell's grounding is spread across the material | sweep | `pool.subsections`, `pool.retrieval-top-m` |
+| questions per quiz | requests | `number-of-questions` |
+| quizzes per configuration per request | sweep | `repetitions` |
+| pool growth when a request cannot be filled (0 disables) | sweep | `selection.top-up-rounds` |
+| agentic regeneration rounds per quiz | sweep | `agentic.max-rounds` |
 
 ### Models and configuration
 

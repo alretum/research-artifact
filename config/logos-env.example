@@ -3,7 +3,7 @@
 #   cp config/logos-env.example ~/.logos-env && chmod 600 ~/.logos-env
 #
 # The real file lives in your home directory, never in the repo, and holds your Logos credentials.
-# This template is committed; the copy you fill in is not. See README.md section 4.1.
+# This template is committed; the copy you fill in is not. See the Setup section of README.md.
 #
 #   source ~/.logos-env
 #
