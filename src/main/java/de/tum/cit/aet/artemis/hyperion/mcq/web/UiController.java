@@ -544,6 +544,7 @@ public class UiController {
         model.addAttribute("generated", items.stream().filter(item -> item.title() != null).count());
         model.addAttribute("failed", items.stream().filter(item -> item.title() == null).count());
         model.addAttribute("competencies", items.stream().map(RunStore.PoolItemSummary::competencyKey).distinct().count());
+        model.addAttribute("judges", items.stream().flatMap(item -> item.judgeDecisions().keySet().stream()).distinct().sorted().toList());
         return "pool";
     }
 

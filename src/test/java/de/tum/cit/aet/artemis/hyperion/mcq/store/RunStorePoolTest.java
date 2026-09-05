@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -169,8 +170,7 @@ class RunStorePoolTest {
         assertThat(judged.title()).isEqualTo("Duality");
         assertThat(judged.competencyKey()).isEqualTo("arrays");
         assertThat(judged.generatorModel()).isEqualTo("gen-local");
-        assertThat(judged.acceptVerdicts()).isEqualTo(1);
-        assertThat(judged.totalVerdicts()).isEqualTo(1);
+        assertThat(judged.judgeDecisions()).containsExactly(Map.entry("judge-local", true));
     }
 
     @Test

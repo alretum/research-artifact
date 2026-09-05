@@ -8,7 +8,8 @@
             <span th:text="${generated}"></span> questions across
             <span th:text="${competencies}"></span> competencies,
             <span th:text="${failed}"></span> failed generations.
-            Every question is stored with its labels and judged at pool entry; a quiz draws only from its
+            Every question is stored with its labels and judged at pool entry. Each judge column is an
+            independent verdict: a quiz configuration uses only its own judge's column, drawing from its
             own generator's questions.
         </p>
     </div>
@@ -16,7 +17,10 @@
     <div class="card">
         <p class="muted" th:if="${#lists.isEmpty(items)}">No pool yet. Run a sweep to build one.</p>
         <table th:unless="${#lists.isEmpty(items)}">
-            <tr><th>Title</th><th>Course</th><th>Competency</th><th>Lang</th><th>Type</th><th>Difficulty</th><th>Pool</th><th>State</th><th>Accepted by</th></tr>
+            <tr>
+                <th>Title</th><th>Course</th><th>Competency</th><th>Lang</th><th>Type</th><th>Difficulty</th><th>Pool</th><th>State</th>
+                <th th:each="judge : ${judges}" th:text="'Judge ' + ${judge}"></th>
+            </tr>
             <tr th:each="i : ${items}">
                 <td>
                     <a th:if="${i.title() != null}" th:href="@{'/items/' + ${i.id()}}" th:text="${i.title()}"></a>
@@ -29,11 +33,10 @@
                 <td class="muted" th:text="${i.difficultyBand()}"></td>
                 <td class="muted" th:text="${i.runId()}"></td>
                 <td class="muted" th:text="${i.state()}"></td>
-                <td>
-                    <span th:if="${i.totalVerdicts() > 0}"
-                          th:classappend="${i.acceptVerdicts() == i.totalVerdicts()} ? 'ok' : (${i.acceptVerdicts() == 0} ? 'bad' : '')"
-                          th:text="${i.acceptVerdicts()} + ' / ' + ${i.totalVerdicts()} + ' judges'"></span>
-                    <span th:if="${i.totalVerdicts() == 0}" class="muted">unjudged</span>
+                <td th:each="judge : ${judges}">
+                    <span th:if="${i.judgeDecisions().get(judge) == true}" class="ok">accepted</span>
+                    <span th:if="${i.judgeDecisions().get(judge) == false}" class="bad">rejected</span>
+                    <span th:if="${i.judgeDecisions().get(judge) == null}" class="muted">—</span>
                 </td>
             </tr>
         </table>

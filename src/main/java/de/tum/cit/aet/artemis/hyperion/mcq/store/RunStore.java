@@ -603,11 +603,15 @@ public class RunStore implements AutoCloseable {
      *
      * @param title          {@code null} while nothing was generated
      * @param accepted       the build judge's decision, {@code null} while unjudged
-     * @param acceptVerdicts recorded verdicts that accepted the item
-     * @param totalVerdicts  recorded verdicts overall
+     * @param judgeDecisions each judge's independent pool-entry acceptance, keyed by judge model; a judge
+     *                       that has not judged the item is absent
      */
     public record PoolItemSummary(long id, String runId, String courseKey, String competencyKey, String language, String questionType, String difficultyBand,
-            String generatorModel, ItemState state, String title, Boolean accepted, int acceptVerdicts, int totalVerdicts) {
+            String generatorModel, ItemState state, String title, Boolean accepted, Map<String, Boolean> judgeDecisions) {
+
+        public PoolItemSummary {
+            judgeDecisions = Map.copyOf(judgeDecisions);
+        }
     }
 
     /**
@@ -617,13 +621,24 @@ public class RunStore implements AutoCloseable {
      * @return pool item summaries
      */
     public synchronized List<PoolItemSummary> browsePool(int limit) {
+        Map<Long, Map<String, Boolean>> decisions = new LinkedHashMap<>();
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT v.item_rowid, v.judge_model, v.accepted FROM verdict v
+                JOIN item i ON i.rowid = v.item_rowid WHERE i.configuration_id LIKE 'pool|%' AND v.scope = 'GENERAL'""")) {
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    decisions.computeIfAbsent(rows.getLong(1), _ -> new LinkedHashMap<>()).put(rows.getString(2), rows.getInt(3) != 0);
+                }
+            }
+        }
+        catch (SQLException e) {
+            throw new IllegalStateException("Failed to read pool verdicts", e);
+        }
         List<PoolItemSummary> items = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT i.rowid, i.run_id, i.course_key, i.competency_key, i.language, i.question_type, i.difficulty_band, i.generator_model, i.state,
                        json_extract(i.item_json, '$.title'),
-                       json_extract(i.decision_json, '$.accepted'),
-                       (SELECT COUNT(*) FROM verdict v WHERE v.item_rowid = i.rowid AND v.accepted = 1),
-                       (SELECT COUNT(*) FROM verdict v WHERE v.item_rowid = i.rowid)
+                       json_extract(i.decision_json, '$.accepted')
                 FROM item i WHERE i.configuration_id LIKE 'pool|%' ORDER BY i.updated_at DESC LIMIT ?""")) {
             statement.setInt(1, limit);
             try (ResultSet rows = statement.executeQuery()) {
@@ -631,7 +646,7 @@ public class RunStore implements AutoCloseable {
                     Object acceptedValue = rows.getObject(11);
                     items.add(new PoolItemSummary(rows.getLong(1), rows.getString(2), rows.getString(3), rows.getString(4), rows.getString(5), rows.getString(6),
                             rows.getString(7), rows.getString(8), ItemState.valueOf(rows.getString(9)), rows.getString(10),
-                            acceptedValue == null ? null : ((Number) acceptedValue).intValue() != 0, rows.getInt(12), rows.getInt(13)));
+                            acceptedValue == null ? null : ((Number) acceptedValue).intValue() != 0, decisions.getOrDefault(rows.getLong(1), Map.of())));
                 }
             }
         }
