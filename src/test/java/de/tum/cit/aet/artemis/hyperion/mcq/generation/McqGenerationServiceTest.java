@@ -203,6 +203,52 @@ class McqGenerationServiceTest {
     }
 
     @Test
+    void generateQuiz_rejectsAQuestionReferencingAnArtifactItDoesNotContain() {
+        respondWith("""
+                { "questions": [
+                  { "type": "single-choice", "title": "Pivot", "questionText": "Given the following tableau, which column is the pivot column?",
+                    "options": [ {"text":"a","correct":true}, {"text":"b","correct":false}, {"text":"c","correct":false}, {"text":"d","correct":false} ],
+                    "explanation": "e" } ] }
+                """);
+
+        var result = generateQuiz(Set.of(QuestionType.SINGLE_CHOICE));
+
+        assertThat(result.failure()).isEqualTo(Failure.VALIDATION_VIOLATION);
+        assertThat(result.invalidCount()).isEqualTo(1);
+    }
+
+    @Test
+    void generateQuiz_acceptsAnArtifactReferenceWhenTheQuestionContainsTheData() {
+        respondWith("""
+                { "questions": [
+                  { "type": "single-choice", "title": "Pivot",
+                    "questionText": "Given the following tableau, which column is the pivot column?\\n    x1  x2 | RHS\\nz  -3  -2 | 0\\nx3  1   1 | 4",
+                    "options": [ {"text":"a","correct":true}, {"text":"b","correct":false}, {"text":"c","correct":false}, {"text":"d","correct":false} ],
+                    "explanation": "e" } ] }
+                """);
+
+        var result = generateQuiz(Set.of(QuestionType.SINGLE_CHOICE));
+
+        assertThat(result.failure()).isNull();
+        assertThat(result.items()).hasSize(1);
+    }
+
+    @Test
+    void generateQuiz_acceptsWhichOfTheFollowingPhrasing() {
+        respondWith("""
+                { "questions": [
+                  { "type": "single-choice", "title": "Duality", "questionText": "Which of the following statements about duality is true?",
+                    "options": [ {"text":"a","correct":true}, {"text":"b","correct":false}, {"text":"c","correct":false}, {"text":"d","correct":false} ],
+                    "explanation": "e" } ] }
+                """);
+
+        var result = generateQuiz(Set.of(QuestionType.SINGLE_CHOICE));
+
+        assertThat(result.failure()).isNull();
+        assertThat(result.items()).hasSize(1);
+    }
+
+    @Test
     void generateQuiz_rejectsAMultipleChoiceQuestionWithEveryOptionCorrect() {
         respondWith("""
                 { "questions": [

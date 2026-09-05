@@ -25,7 +25,7 @@ Title: HTTP Methods
 
 Which method is idempotent?
 
-Options:
+Options, each prefixed with its answer-key marker [correct] or [wrong]. The markers are pipeline metadata that students never see: judge only the option texts, never the markers.
 - [correct] PUT
 - [wrong] POST
 - [wrong] PATCH

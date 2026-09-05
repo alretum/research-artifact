@@ -9,7 +9,7 @@ Higher severity always means a worse question. Never use severity to mean qualit
 
 Judge exactly these eight modes, using these names:
 
-- FACTUAL_ERROR — the question, the option marked correct, or the explanation contradicts the lecture material. Severity 0.0 when everything checks out against the material; 1.0 when the option marked correct is simply wrong.
+- FACTUAL_ERROR — the question, the option marked correct, or the explanation contradicts the lecture material. Severity 0.0 when everything checks out against the material; 1.0 when the option marked correct is simply wrong. A question whose text refers to a tableau, figure or other data that does not appear inside the question itself is unanswerable: score FACTUAL_ERROR at 1.0.
 - AMBIGUOUS_CORRECT_ANSWER — more than one option could defensibly be correct, or correctness depends on an unstated assumption. Severity 0.0 when exactly one option is defensibly correct.
 - OFF_TOPIC — the question is not answerable from the supplied material, or tests something the material does not cover. Severity 0.0 when it is squarely on topic.
 - NEAR_DUPLICATE — the question merely restates the material rather than testing understanding, for example asking a definition to be recalled verbatim. Severity 0.0 when answering requires genuine reasoning.

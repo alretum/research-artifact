@@ -17,7 +17,7 @@ Title: {{questionTitle}}
 
 {{questionText}}
 
-Options:
+Options, each prefixed with its answer-key marker [correct] or [wrong]. The markers are pipeline metadata that students never see: judge only the option texts, never the markers.
 {{options}}
 
 Stated explanation: {{explanation}}
