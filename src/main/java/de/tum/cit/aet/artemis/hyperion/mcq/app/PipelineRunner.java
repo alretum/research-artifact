@@ -171,24 +171,25 @@ public class PipelineRunner implements ApplicationRunner {
             return;
         }
         if (args.containsOption("experiment")) {
-            runExperiment(Path.of(args.getOptionValues("experiment").getFirst()));
+            runExperiment(Path.of(args.getOptionValues("experiment").getFirst()), runName(args));
             return;
         }
         if (args.containsOption("experiment-status")) {
-            experimentStatus(Path.of(args.getOptionValues("experiment-status").getFirst()));
+            experimentStatus(Path.of(args.getOptionValues("experiment-status").getFirst()), runName(args));
             return;
         }
         if (args.containsOption("export-experiment")) {
-            exportExperiment(Path.of(args.getOptionValues("export-experiment").getFirst()));
+            exportExperiment(Path.of(args.getOptionValues("export-experiment").getFirst()), runName(args));
             return;
         }
         if (args.containsOption("experiment-cost")) {
-            SweepPlan plan = SweepPlan.load(Path.of(args.getOptionValues("experiment-cost").getFirst()));
+            String name = runName(args);
+            SweepPlan plan = namedPlan(Path.of(args.getOptionValues("experiment-cost").getFirst()), name);
             ModelCatalogue costCatalogue = ModelCatalogue.load(Path.of(properties.modelCataloguePath()));
             Map<String, String> keyToModel = new java.util.LinkedHashMap<>();
             plan.configurations().forEach(configuration -> List.of(configuration.generator(), configuration.judge(), configuration.selector())
                     .forEach(key -> keyToModel.computeIfAbsent(key, k -> costCatalogue.requireModel(k).model())));
-            try (RunStore store = new RunStore(Path.of(properties.batch().databasePath()))) {
+            try (RunStore store = new RunStore(sweepDatabase(name))) {
                 sweepCost.report(store, plan, keyToModel, Path.of(properties.pricingPath()));
             }
             return;
@@ -382,8 +383,47 @@ public class PipelineRunner implements ApplicationRunner {
      *
      * @param sweepFile the sweep plan
      */
-    private void runExperiment(Path sweepFile) {
+    /**
+     * Reads the {@code --as} run-name override, or {@code null} when absent.
+     *
+     * @throws IllegalArgumentException if the name cannot be part of a file name
+     */
+    private static String runName(ApplicationArguments args) {
+        if (!args.containsOption("as")) {
+            return null;
+        }
+        String name = args.getOptionValues("as").getFirst();
+        if (!name.matches("[A-Za-z0-9][A-Za-z0-9._-]*")) {
+            throw new IllegalArgumentException("Run name '" + name + "' must start alphanumeric and contain only letters, digits, '.', '_' and '-'");
+        }
+        return name;
+    }
+
+    /**
+     * Loads a sweep plan, renamed to the given run name when one is set.
+     */
+    private static SweepPlan namedPlan(Path sweepFile, String name) {
         SweepPlan plan = SweepPlan.load(sweepFile);
+        return name == null ? plan : plan.named(name);
+    }
+
+    /**
+     * The database a sweep runs against: the configured one, or a sibling file carrying the run name, so a
+     * named run shares no pools, verdicts or quizzes with any other run.
+     */
+    private Path sweepDatabase(String name) {
+        Path configured = Path.of(properties.batch().databasePath());
+        if (name == null) {
+            return configured;
+        }
+        String file = configured.getFileName().toString();
+        int dot = file.lastIndexOf('.');
+        String named = dot < 0 ? file + "-" + name : file.substring(0, dot) + "-" + name + file.substring(dot);
+        return configured.resolveSibling(named);
+    }
+
+    private void runExperiment(Path sweepFile, String name) {
+        SweepPlan plan = namedPlan(sweepFile, name);
         List<GenerationRequest> requests = RequestFileReader.read(Path.of(plan.requestsFile()));
         Indexed indexed = buildIndex();
         Map<String, de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyManifest> manifests = resolveManifests(requests);
@@ -391,7 +431,8 @@ public class PipelineRunner implements ApplicationRunner {
         ModelRegistry registry = new ModelRegistry(catalogue, chatClientBuilder.build());
         Map<String, String> hashes = SweepRunner.hashDocuments(Path.of(properties.corpusPath()));
 
-        try (RunStore store = new RunStore(Path.of(properties.batch().databasePath()))) {
+        log.info("Sweep {} runs against {}", plan.sweep(), sweepDatabase(name));
+        try (RunStore store = new RunStore(sweepDatabase(name))) {
             SweepRunner runner = new SweepRunner(plan, requests,
                     new SweepRunner.Dependencies(manifests, indexed.source(), groundingAssembly, generation, filter, agentic, twoPhase, store, registry, properties));
             int assembled = runner.run(hashes);
@@ -407,10 +448,10 @@ public class PipelineRunner implements ApplicationRunner {
      *
      * @param sweepFile the sweep plan
      */
-    private void experimentStatus(Path sweepFile) {
-        SweepPlan plan = SweepPlan.load(sweepFile);
+    private void experimentStatus(Path sweepFile, String name) {
+        SweepPlan plan = namedPlan(sweepFile, name);
         List<GenerationRequest> requests = RequestFileReader.read(Path.of(plan.requestsFile()));
-        try (RunStore store = new RunStore(Path.of(properties.batch().databasePath()))) {
+        try (RunStore store = new RunStore(sweepDatabase(name))) {
             StringBuilder out = new StringBuilder();
             List<String> generators = plan.configurations().stream().filter(configuration -> configuration.approach() == SweepPlan.Approach.TWO_PHASE)
                     .map(SweepPlan.Configuration::generator).distinct().toList();
@@ -434,11 +475,11 @@ public class PipelineRunner implements ApplicationRunner {
      *
      * @param sweepFile the sweep plan the quizzes were assembled from
      */
-    private void exportExperiment(Path sweepFile) {
-        SweepPlan plan = SweepPlan.load(sweepFile);
+    private void exportExperiment(Path sweepFile, String name) {
+        SweepPlan plan = namedPlan(sweepFile, name);
         List<GenerationRequest> requests = RequestFileReader.read(Path.of(plan.requestsFile()));
         Map<String, de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyManifest> manifests = resolveManifests(requests);
-        try (RunStore store = new RunStore(Path.of(properties.batch().databasePath()))) {
+        try (RunStore store = new RunStore(sweepDatabase(name))) {
             Path directory = Path.of(properties.benchmarkExportPath()).resolve(plan.sweep());
             List<Path> written = sweepExporter.export(store, plan.sweep(), requests, manifests, directory);
             log.info("Exported {} quizzes to {}", written.size(), directory);

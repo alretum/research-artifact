@@ -62,6 +62,23 @@ class SweepPlanTest {
     }
 
     @Test
+    void named_replacesOnlyTheSweepName() throws IOException {
+        SweepPlan plan = SweepPlan.load(file("""
+                sweep: minimal
+                requests-file: requests.yml
+                configurations:
+                  - { id: a, approach: agentic, generator: m, judge: m }
+                """));
+
+        SweepPlan renamed = plan.named("pilot-2");
+
+        assertThat(renamed.sweep()).isEqualTo("pilot-2");
+        assertThat(renamed.requestsFile()).isEqualTo(plan.requestsFile());
+        assertThat(renamed.repetitions()).isEqualTo(plan.repetitions());
+        assertThat(renamed.configurations()).isEqualTo(plan.configurations());
+    }
+
+    @Test
     void load_appliesDefaultsWhenSectionsAreAbsent() throws IOException {
         SweepPlan plan = SweepPlan.load(file("""
                 sweep: minimal

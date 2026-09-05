@@ -112,6 +112,17 @@ Properties of the run worth relying on:
 - **A changed sweep is refused.** Editing requests, repetitions or the course model after the first run
   fails with "was created with a different configuration" — rename the sweep to start fresh.
 - **The sweep name is the run id.** Everything lands in `data/run.db` under it.
+- **`--as=<name>` runs the same plan as a fully independent run.** It overrides the sweep name and uses
+  its own database (`data/run-<name>.db`), so it shares no pools, verdicts or quizzes with any earlier
+  run — a clean slate with one flag and no file edits:
+
+  ```bash
+  ./gradlew bootRun --args='--experiment=config/sweeps/smoke.yml --as=pilot-2'
+  ```
+
+  Re-running the same command resumes `pilot-2`; the flag works the same on `--experiment-status`,
+  `--export-experiment` and `--experiment-cost`. To browse a named run in the web interface, start the
+  server pointed at its database: `./gradlew bootRun --args='--mcq.batch.database-path=data/run-pilot-2.db'`.
 
 ## 5. Inspect the quizzes
 

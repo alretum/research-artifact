@@ -32,6 +32,16 @@ import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.QuestionType;
  */
 public record SweepPlan(String sweep, String requestsFile, int repetitions, Pool pool, Selection selection, Agentic agentic, List<Configuration> configurations) {
 
+    /**
+     * Returns a copy of this plan under a different sweep name, leaving everything else unchanged.
+     *
+     * @param name the sweep name the copy runs as
+     * @return the renamed plan
+     */
+    public SweepPlan named(String name) {
+        return new SweepPlan(name, requestsFile, repetitions, pool, selection, agentic, configurations);
+    }
+
     /** The approaches a configuration can run. */
     public enum Approach {
         AGENTIC, TWO_PHASE
