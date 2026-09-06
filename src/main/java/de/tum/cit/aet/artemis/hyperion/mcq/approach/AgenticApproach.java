@@ -31,6 +31,9 @@ import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyManifest.Competency;
  * every filter call. Each question is judged individually at {@link FilterScope#COMBINED}, so general
  * quality and request fit are decided in one call per question. A question whose normalised text duplicates
  * an already accepted one is rejected without a filter call.
+ * <p>
+ * The round loop ends at {@code maxRounds}, when the quiz is full, or early after any round that adds no
+ * accepted question — the inputs do not change between rounds, so a fruitless round is not repeated.
  */
 @Service
 public class AgenticApproach implements QuizGenerator {
@@ -63,13 +66,14 @@ public class AgenticApproach implements QuizGenerator {
         int generated = 0;
 
         for (int round = 1; round <= context.maxRounds() && accepted.size() < request.numberOfQuestions(); round++) {
+            int acceptedBeforeRound = accepted.size();
             int missing = request.numberOfQuestions() - accepted.size();
             McqGenerationService.QuizResult batch = generation.generateQuiz(request, competencies, grounding, missing, context.generator().model(),
                     context.generator().temperature(), context.generator().maxAttempts(), context.generator().client());
             calls.add(batch.call());
             if (batch.failure() != null) {
                 log.warn("Round {}/{} of request {} yielded no usable questions: {}", round, context.maxRounds(), request.key(), batch.failure());
-                continue;
+                break;
             }
             generated += batch.items().size();
 
@@ -92,6 +96,10 @@ public class AgenticApproach implements QuizGenerator {
                 else {
                     rejected.add(new JudgedQuestion(item, judged.decision()));
                 }
+            }
+            if (accepted.size() == acceptedBeforeRound) {
+                log.warn("Round {}/{} of request {} added no accepted question; stopping early", round, context.maxRounds(), request.key());
+                break;
             }
         }
 

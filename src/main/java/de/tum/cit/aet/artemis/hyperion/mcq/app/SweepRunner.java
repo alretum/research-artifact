@@ -156,7 +156,8 @@ public class SweepRunner {
      * Each round enqueues the shortfall into the request's cells, generates and judges the new items as
      * regular pool entries — with the requesting configuration's judge as the build judge — and repeats the
      * selection. New items stay in the pool for later requests; other judges add their verdicts on the next
-     * sweep run. After {@code selection.topUpRounds} unsuccessful rounds the quiz stays incomplete.
+     * sweep run. The loop ends at {@code selection.topUpRounds}, on completion, or early after a round that
+     * adds no accepted question; the quiz then stays incomplete.
      *
      * @return the final quiz, carrying the selection calls of every round
      */
@@ -179,7 +180,8 @@ public class SweepRunner {
 
         List<CallRecord> calls = new ArrayList<>(quiz.calls());
         for (int round = 1; round <= rounds && !quiz.complete(); round++) {
-            int missing = request.numberOfQuestions() - quiz.accepted().size();
+            int acceptedBeforeRound = quiz.accepted().size();
+            int missing = request.numberOfQuestions() - acceptedBeforeRound;
             int perCell = Math.max(1, (int) Math.ceil((double) missing / cells.size()));
             int enqueued = builder.grow(cells, perCell);
             int completed = builder.build(generator.client(), judge.client());
@@ -187,6 +189,10 @@ public class SweepRunner {
                     missing, enqueued, completed);
             quiz = dependencies.twoPhase().generate(request, context);
             calls.addAll(quiz.calls());
+            if (quiz.accepted().size() <= acceptedBeforeRound && !quiz.complete()) {
+                log.warn("Top-up round {}/{} for {} / {} added no accepted question; stopping early", round, rounds, configuration.configurationId(), request.key());
+                break;
+            }
         }
         if (!quiz.complete()) {
             log.warn("Request {} still incomplete for {} after {} top-up rounds", request.key(), configuration.configurationId(), rounds);

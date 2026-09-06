@@ -107,6 +107,8 @@ Properties of the run worth relying on:
 - **An underfilled pool grows on demand.** When two-phase selection cannot fill a request, the sweep
   generates the shortfall into the request's pool cells — labelled, subsection-grounded and judged at pool
   entry like any other pool item — and selects again, up to `selection.top-up-rounds` times (default 3).
+  Both retry loops — this one and the agentic `max-rounds` loop — stop early after a round that adds no
+  accepted question, since the inputs do not change between rounds.
   Setting it to `0` restores strict pool-only serving, and a quiz is stored incomplete only once the
   rounds are exhausted. Top-up items stay in the pool for later requests.
 - **A changed sweep is refused.** Editing requests, repetitions or the course model after the first run

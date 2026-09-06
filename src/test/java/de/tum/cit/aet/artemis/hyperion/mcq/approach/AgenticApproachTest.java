@@ -92,7 +92,7 @@ class AgenticApproachTest {
     }
 
     @Test
-    void generate_stopsAfterMaxRoundsAndReportsTheQuizIncomplete() {
+    void generate_stopsEarlyAfterARoundThatAddsNoAcceptedQuestion() {
         when(generatorModel.call(any(Prompt.class))).thenReturn(response(quiz(question("Q one", "PUT"))), response(quiz(question("Q two", "DELETE"))),
                 response(quiz(question("Q three", "PATCH"))));
         when(judgeModel.call(any(Prompt.class))).thenReturn(response(verdict(0.9)));
@@ -101,7 +101,20 @@ class AgenticApproachTest {
 
         assertThat(quiz.complete()).isFalse();
         assertThat(quiz.accepted()).isEmpty();
-        assertThat(quiz.rejected()).hasSize(3);
+        assertThat(quiz.rejected()).hasSize(1);
+        verify(generatorModel, times(1)).call(any(Prompt.class));
+    }
+
+    @Test
+    void generate_stopsAfterMaxRoundsWhileEveryRoundMakesProgress() {
+        when(generatorModel.call(any(Prompt.class))).thenReturn(response(quiz(question("Q one", "PUT"))), response(quiz(question("Q two", "DELETE"))),
+                response(quiz(question("Q three", "PATCH"))));
+        when(judgeModel.call(any(Prompt.class))).thenReturn(response(verdict(0.0)));
+
+        Quiz quiz = approach.generate(request(4), context);
+
+        assertThat(quiz.complete()).isFalse();
+        assertThat(quiz.accepted()).hasSize(3);
         verify(generatorModel, times(3)).call(any(Prompt.class));
     }
 
