@@ -13,6 +13,12 @@ server:
       tracking-modes: cookie
 
 spring:
+  http:
+    clients:
+      # A model call that receives no bytes for this long is failed and retried; without these
+      # timeouts a black-holed connection (VPN drop, network change) hangs the run forever.
+      connect-timeout: 10s
+      read-timeout: 300s
   main:
     banner-mode: off
   servlet:
