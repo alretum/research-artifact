@@ -76,10 +76,19 @@ most one model call is repeated, finished work is never redone, and re-running a
 model calls at all. `--as=<name>` also makes the run independent: it runs under that name against its own
 database (`data/run-<name>.db`), sharing no pools, verdicts or quizzes with any other run.
 
-Follow progress with `tail -f sweep.log`, or read-only from any other shell:
+**Stopping, restarting and watching.** Stopping is always safe — every finished unit of work is stored,
+so stopping loses at most one in-flight model call:
 
 ```bash
-java -jar build/libs/mcq-pipeline-0.1.0-SNAPSHOT.jar --experiment-status=config/sweeps/logos-test.yml --as=my-run
+pkill -f 'run.jar --experiment'      # stop the sweep
+# ...and to continue: re-run the exact start command (use a fresh log file per attempt, e.g. sweep2.log)
+```
+
+Watch the live log with `tail -f sweep.log` (Ctrl-C detaches; the run continues), find the newest log
+with `ls -t *.log | head -1`, or get a one-shot progress summary from any shell without a model call:
+
+```bash
+java -jar run.jar --experiment-status=config/sweeps/logos-test.yml --as=my-run
 ```
 
 (On a workstation with the terminal open, `./gradlew bootRun --args='--experiment=… --as=…'` does the
