@@ -13,12 +13,6 @@ server:
       tracking-modes: cookie
 
 spring:
-  http:
-    clients:
-      # A model call that receives no bytes for this long is failed and retried; without these
-      # timeouts a black-holed connection (VPN drop, network change) hangs the run forever.
-      connect-timeout: 10s
-      read-timeout: 300s
   main:
     banner-mode: off
   servlet:
@@ -44,7 +38,10 @@ spring:
       base-url: ${LOGOS_BASE_URL:https://logos.aet.cit.tum.de/v1}
       api-key: ${LOGOS_API_KEY:unset}
       microsoft-foundry: false
-      timeout: 10m
+      # The chat client's effective timeouts are set in ModelHttpTimeouts, not here: this property does
+      # not reach the OpenAI SDK client the chat auto-configuration builds. It is kept aligned with the
+      # response ceiling there for whichever auxiliary clients do read it.
+      timeout: 20m
       chat:
         options:
           model: ${LOGOS_MODEL:openai/gpt-oss-120b}
