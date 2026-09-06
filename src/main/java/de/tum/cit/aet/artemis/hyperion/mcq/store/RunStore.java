@@ -864,6 +864,36 @@ public class RunStore implements AutoCloseable {
     }
 
     /**
+     * Return permanently failed items whose failure was transient infrastructure — a timeout, a transport
+     * error or throttling — to the queue, so a restarted run retries them.
+     * <p>
+     * Failed generations go back to {@link ItemState#PENDING} and failed judgings to
+     * {@link ItemState#GENERATED}, each with its attempt counter reset; recorded calls are kept. Content
+     * failures such as validation or malformed output stay failed: they describe the model, not the network.
+     *
+     * @param runId run to revive items in
+     * @return the number of items revived
+     */
+    public synchronized int reviveTransientFailures(String runId) {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                UPDATE item SET
+                    state = CASE state WHEN 'FAILED_GENERATION' THEN 'PENDING' ELSE 'GENERATED' END,
+                    generation_attempts = CASE state WHEN 'FAILED_GENERATION' THEN 0 ELSE generation_attempts END,
+                    filter_attempts = CASE state WHEN 'FAILED_FILTER' THEN 0 ELSE filter_attempts END,
+                    failure = NULL,
+                    updated_at = ?
+                WHERE run_id = ? AND state IN ('FAILED_GENERATION', 'FAILED_FILTER')
+                  AND failure IN ('TIMEOUT', 'TRANSPORT', 'RATE_LIMIT')""")) {
+            statement.setString(1, Instant.now().toString());
+            statement.setString(2, runId);
+            return statement.executeUpdate();
+        }
+        catch (SQLException e) {
+            throw new IllegalStateException("Failed to revive transient failures of run " + runId, e);
+        }
+    }
+
+    /**
      * Count items per state for a run.
      *
      * @param runId run to summarise

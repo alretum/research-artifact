@@ -174,6 +174,28 @@ class RunStorePoolTest {
     }
 
     @Test
+    void reviveTransientFailures_requeuesNetworkFailuresButKeepsContentFailures() {
+        store.enqueuePool(poolItems(3));
+        var first = store.claimNext("run1").orElseThrow();
+        store.recordFailure(first.key(), ItemState.GENERATING, "TRANSPORT", "[]", false);
+        var second = store.claimNext("run1").orElseThrow();
+        store.recordFailure(second.key(), ItemState.GENERATING, "VALIDATION_VIOLATION", "[]", false);
+        var third = store.claimNext("run1").orElseThrow();
+        store.recordGenerated(third.key(), "{\"title\":\"Q\"}", "{}", "[]");
+        var judging = store.claimNext("run1").orElseThrow();
+        assertThat(judging.state()).isEqualTo(ItemState.FILTERING);
+        store.recordFailure(judging.key(), ItemState.FILTERING, "TIMEOUT", "[]", false);
+
+        int revived = store.reviveTransientFailures("run1");
+
+        assertThat(revived).isEqualTo(2);
+        Map<String, Integer> counts = store.stateCounts("run1");
+        assertThat(counts.getOrDefault("PENDING", 0)).isEqualTo(1);
+        assertThat(counts.getOrDefault("GENERATED", 0)).isEqualTo(1);
+        assertThat(counts.getOrDefault("FAILED_GENERATION", 0)).isEqualTo(1);
+    }
+
+    @Test
     void switchTo_movesTheStoreBetweenDatabases() {
         store.saveQuiz(new RunStore.StoredQuiz("q1", "s1", "agentic|m|m", "EIDI", "r1", 1, true, "[]", "[]", "[]"));
 

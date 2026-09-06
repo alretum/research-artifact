@@ -161,6 +161,10 @@ public class PoolBuilder {
      */
     public int build(ChatClient generatorClient, ChatClient judgeClient) {
         store.releaseStaleClaims(settings.runId());
+        int revived = store.reviveTransientFailures(settings.runId());
+        if (revived > 0) {
+            log.info("Pool {}: revived {} items that had failed on timeouts, transport errors or throttling", settings.runId(), revived);
+        }
         log.info("Pool {} build: generator {}, judge {} — {}", settings.runId(), settings.generatorModel(), settings.judgeModel(),
                 ItemState.progress(store.stateCounts(settings.runId())));
         int completed = 0;
