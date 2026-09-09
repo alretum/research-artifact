@@ -210,7 +210,7 @@ public class SweepRunner {
             selection = new SelectionSettings(new ModelCall(selector.client(), selector.model(), plan.selection().temperature(), plan.selection().maxAttempts()),
                     plan.selection().maxCandidates(), null);
         }
-        return new ApproachContext(manifestOf(request.courseKey()), dependencies.snippets(),
+        return new ApproachContext(manifestOf(request.courseKey()), dependencies.store(), dependencies.snippets(),
                 new ModelCall(generator.client(), generator.model(), properties.generation().temperature(), properties.generation().maxAttempts()),
                 new ModelCall(judge.client(), judge.model(), properties.filter().temperature(), properties.filter().maxAttempts()), properties.retrieval().topK(),
                 properties.retrieval().maxGroundingTokens(), properties.filter().acceptThreshold(), plan.agentic().maxRounds(), selection);

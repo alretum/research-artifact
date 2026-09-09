@@ -10,6 +10,7 @@ import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.FilterDecision;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.McqItem;
 import de.tum.cit.aet.artemis.hyperion.mcq.grounding.SnippetSource;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyManifest;
+import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore;
 
 /**
  * Answers one {@link GenerationRequest} with a quiz.
@@ -40,6 +41,8 @@ public interface QuizGenerator {
      * Everything a generator needs besides the request itself.
      *
      * @param manifest           the course's competencies
+     * @param store              the run's store; the two-phase approach reads its pool candidates here, so
+     *                           it must be the store the run's pools were built in
      * @param snippets           retrieval over the course's indexed material
      * @param generator          the writing role
      * @param judge              the filtering role; for the two-phase approach also the pool judge whose
@@ -50,8 +53,8 @@ public interface QuizGenerator {
      * @param maxRounds          generation rounds allowed before an incomplete quiz is returned
      * @param selection          selection parameters; {@code null} for approaches that never select
      */
-    record ApproachContext(CompetencyManifest manifest, SnippetSource snippets, ModelCall generator, ModelCall judge, int topK, int maxGroundingTokens, double acceptThreshold,
-            int maxRounds, SelectionSettings selection) {
+    record ApproachContext(CompetencyManifest manifest, RunStore store, SnippetSource snippets, ModelCall generator, ModelCall judge, int topK, int maxGroundingTokens,
+            double acceptThreshold, int maxRounds, SelectionSettings selection) {
     }
 
     /**

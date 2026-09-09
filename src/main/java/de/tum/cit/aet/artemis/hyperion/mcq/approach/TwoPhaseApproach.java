@@ -36,12 +36,9 @@ public class TwoPhaseApproach implements QuizGenerator {
 
     private static final Logger log = LoggerFactory.getLogger(TwoPhaseApproach.class);
 
-    private final RunStore store;
-
     private final PoolSelectionService selection;
 
-    public TwoPhaseApproach(RunStore store, PoolSelectionService selection) {
-        this.store = store;
+    public TwoPhaseApproach(PoolSelectionService selection) {
         this.selection = selection;
     }
 
@@ -59,7 +56,7 @@ public class TwoPhaseApproach implements QuizGenerator {
             Competencies.resolve(request, context.manifest(), competencyKey);
             for (QuestionType type : request.questionTypes()) {
                 PoolCell cell = new PoolCell(request.courseKey(), competencyKey, request.language(), type, request.difficulty());
-                for (PoolCandidate candidate : store.poolCandidates(cell, context.generator().model(), context.judge().model(), context.selection().poolAsOf())) {
+                for (PoolCandidate candidate : context.store().poolCandidates(cell, context.generator().model(), context.judge().model(), context.selection().poolAsOf())) {
                     byId.putIfAbsent(candidate.id(), candidate);
                 }
             }

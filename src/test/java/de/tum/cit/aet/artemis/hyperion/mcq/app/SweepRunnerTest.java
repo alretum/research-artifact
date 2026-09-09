@@ -154,7 +154,7 @@ class SweepRunnerTest {
         ModelRegistry registry = new ModelRegistry(catalogue, ChatClient.create(model));
         PipelineProperties properties = properties();
         return new SweepRunner(plan, List.of(request), new SweepRunner.Dependencies(Map.of("EIDI", manifest()), snippets, grounding, generation, filter,
-                new AgenticApproach(grounding, generation, filter), new TwoPhaseApproach(store, new PoolSelectionService(templates)), store, registry, properties));
+                new AgenticApproach(grounding, generation, filter), new TwoPhaseApproach(new PoolSelectionService(templates)), store, registry, properties));
     }
 
     private static SweepPlan plan(int repetitions) {

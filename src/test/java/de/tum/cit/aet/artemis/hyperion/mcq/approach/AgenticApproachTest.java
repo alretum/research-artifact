@@ -58,7 +58,7 @@ class AgenticApproachTest {
         lenient().when(judgeModel.getOptions()).thenReturn(OpenAiChatOptions.builder().build());
         PromptTemplateService templates = new PromptTemplateService();
         approach = new AgenticApproach(new GroundingAssemblyService(), new McqGenerationService(templates), new McqFilterService(templates));
-        context = new ApproachContext(manifest(), (query, limit, courseKey) -> List.of(snippet()), new ModelCall(ChatClient.create(generatorModel), "gen-model", 0.7, 1),
+        context = new ApproachContext(manifest(), null, (query, limit, courseKey) -> List.of(snippet()), new ModelCall(ChatClient.create(generatorModel), "gen-model", 0.7, 1),
                 new ModelCall(ChatClient.create(judgeModel), "judge-model", 0.2, 1), 8, 6000, 0.7, 3, null);
     }
 
