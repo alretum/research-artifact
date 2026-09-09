@@ -1,5 +1,8 @@
 package de.tum.cit.aet.artemis.hyperion.mcq.approach;
 
+import java.util.Locale;
+import java.util.Optional;
+
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.GenerationRequest;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyManifest;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyManifest.Competency;
@@ -31,6 +34,36 @@ final class Competencies {
             rendered.append('\n');
         }
         return rendered.toString().strip();
+    }
+
+    /**
+     * Resolves the competency a generated question declares to one of the request's competency keys.
+     * <p>
+     * A single-competency request needs no declaration: every question targets the one competency asked
+     * for. Otherwise the declaration is matched, ignoring case and surrounding whitespace, against each
+     * requested competency's key and title. An unmatched declaration yields an empty result, because a
+     * question whose targeted competency is unknown cannot be scored against a learning objective.
+     *
+     * @param request  the request naming the candidate competencies
+     * @param manifest the course model declaring them
+     * @param declared the competency title or key the model named, possibly {@code null}
+     * @return the resolved competency key, or empty when it cannot be resolved
+     */
+    static Optional<String> match(GenerationRequest request, CompetencyManifest manifest, String declared) {
+        if (request.competencyKeys().size() == 1) {
+            return Optional.of(request.competencyKeys().getFirst());
+        }
+        if (declared == null || declared.isBlank()) {
+            return Optional.empty();
+        }
+        String needle = declared.strip().toLowerCase(Locale.ROOT);
+        for (String key : request.competencyKeys()) {
+            Competency competency = resolve(request, manifest, key);
+            if (needle.equals(key.toLowerCase(Locale.ROOT)) || needle.equals(competency.title().strip().toLowerCase(Locale.ROOT))) {
+                return Optional.of(key);
+            }
+        }
+        return Optional.empty();
     }
 
     /**

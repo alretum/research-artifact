@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import org.slf4j.Logger;
@@ -84,13 +85,21 @@ public class AgenticApproach implements QuizGenerator {
                 log.warn("Round {}/{} of request {} yielded no usable questions: {}", round, context.maxRounds(), request.key(), batch.failure());
                 continue;
             }
-            generated += batch.items().size();
+            generated += batch.questions().size();
 
-            for (McqItem item : batch.items()) {
+            for (McqGenerationService.GeneratedQuestion question : batch.questions()) {
                 if (accepted.size() >= request.numberOfQuestions()) {
                     break;
                 }
+                McqItem item = question.item();
                 if (!acceptedTexts.add(normalise(item.questionText()))) {
+                    continue;
+                }
+                Optional<String> competencyKey = request.competencyMode() ? Competencies.match(request, context.manifest(), question.declaredCompetency())
+                        : Optional.empty();
+                if (request.competencyMode() && competencyKey.isEmpty()) {
+                    log.warn("Question '{}' of request {} declares competency '{}', which the request does not name; discarding it", item.title(), request.key(),
+                            question.declaredCompetency());
                     continue;
                 }
                 McqFilterService.Result judged = filter.evaluate(item, grounding, FilterScope.COMBINED, fit, context.acceptThreshold(), gating,
@@ -100,10 +109,10 @@ public class AgenticApproach implements QuizGenerator {
                     continue;
                 }
                 if (judged.decision().accepted()) {
-                    accepted.add(new JudgedQuestion(item, judged.decision()));
+                    accepted.add(new JudgedQuestion(item, judged.decision(), competencyKey.orElse(null)));
                 }
                 else {
-                    rejected.add(new JudgedQuestion(item, judged.decision()));
+                    rejected.add(new JudgedQuestion(item, judged.decision(), competencyKey.orElse(null)));
                 }
             }
             if (accepted.size() == acceptedBeforeRound) {

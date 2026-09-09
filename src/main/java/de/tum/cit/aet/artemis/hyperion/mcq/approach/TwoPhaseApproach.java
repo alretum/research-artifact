@@ -78,7 +78,8 @@ public class TwoPhaseApproach implements QuizGenerator {
         List<JudgedQuestion> accepted = new ArrayList<>();
         for (Long id : result.selection().chosenIds()) {
             PoolCandidate candidate = byId.get(id);
-            accepted.add(new JudgedQuestion(readItem(candidate.itemJson()), readDecision(candidate.decisionJson())));
+            accepted.add(new JudgedQuestion(readItem(candidate.itemJson()), readDecision(candidate.decisionJson()),
+                    PoolCell.fromKey(candidate.key().topicKey()).competencyKey()));
         }
         boolean complete = accepted.size() >= request.numberOfQuestions();
         if (!complete) {

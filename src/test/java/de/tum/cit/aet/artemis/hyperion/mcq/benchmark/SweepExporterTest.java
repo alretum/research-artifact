@@ -93,6 +93,42 @@ class SweepExporterTest {
     }
 
     @Test
+    void export_stampsEachQuestionWithItsOwnCompetencysObjectiveAndBloomLevel() throws IOException {
+        store.saveQuiz(new StoredQuiz("sweep1-two-competencies", "sweep1", "agentic|local|local", "EIDI", "eidi-r2", 1, true,
+                mapper.writeValueAsString(List.of(judged(singleChoice(), "arrays"), judged(multipleChoice(), "streams"))), "[]",
+                "[]"));
+
+        exporter.export(store, "sweep1", List.of(request(), twoCompetencyRequest()), twoCompetencyManifests(), directory.resolve("out"));
+
+        Map<String, Object> quiz = mapper.readValue(Files.readString(directory.resolve("out/quizzes/sweep1-two-competencies.json")), new TypeReference<Map<String, Object>>() {
+        });
+        List<Map<String, Object>> questions = questions(quiz);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> first = (Map<String, Object>) questions.getFirst().get("metadata");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> second = (Map<String, Object>) questions.getLast().get("metadata");
+
+        assertThat(first.get("competency")).isEqualTo("Arrays");
+        assertThat(first.get("bloom_intended")).isEqualTo("APPLY");
+        assertThat(String.valueOf(first.get("learning_objective"))).contains("Arrays").doesNotContain("Streams");
+        assertThat(second.get("competency")).isEqualTo("Streams");
+        assertThat(second.get("bloom_intended")).isEqualTo("UNDERSTAND");
+        assertThat(String.valueOf(second.get("learning_objective"))).contains("Streams").doesNotContain("Arrays");
+    }
+
+    private static GenerationRequest twoCompetencyRequest() {
+        return new GenerationRequest("eidi-r2", "EIDI", null, List.of("arrays", "streams"), null, Language.DE,
+                java.util.Set.of(QuestionType.SINGLE_CHOICE, QuestionType.MULTIPLE_CHOICE), 2, Difficulty.MEDIUM);
+    }
+
+    private static Map<String, CompetencyManifest> twoCompetencyManifests() {
+        return Map.of("EIDI", new CompetencyManifest(new Course("EIDI", "EIDI", ""),
+                List.of(new Competency("arrays", "Arrays", "Du kannst Arrays erstellen.", null, Taxonomy.APPLY, false, null,
+                        List.of(new CompetencyManifest.Link("01_Arrays.pdf", 1.0)), List.of(), List.of()),
+                        new Competency("streams", "Streams", "Du kannst Streams nutzen.", null, Taxonomy.UNDERSTAND, false, null, List.of(), List.of(), List.of()))));
+    }
+
+    @Test
     void export_writesASidecarCoveringExactlyThePublicQuestionIds() throws IOException {
         exporter.export(store, "sweep1", List.of(request()), manifests(), directory.resolve("out"));
 
@@ -167,7 +203,11 @@ class SweepExporterTest {
     }
 
     private static JudgedQuestion judged(McqItem item) {
-        return new JudgedQuestion(item, new FilterDecision(true, 1.0, 0.0, Map.of(), "judge", "fine"));
+        return judged(item, "arrays");
+    }
+
+    private static JudgedQuestion judged(McqItem item, String competencyKey) {
+        return new JudgedQuestion(item, new FilterDecision(true, 1.0, 0.0, Map.of(), "judge", "fine"), competencyKey);
     }
 
     private static McqItem singleChoice() {

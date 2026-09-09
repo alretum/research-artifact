@@ -74,8 +74,11 @@ public interface QuizGenerator {
 
     /**
      * One judged question.
+     *
+     * @param competencyKey the competency this question assesses; {@code null} on quizzes stored before
+     *                      questions carried an attribution, and on free-topic requests
      */
-    record JudgedQuestion(McqItem item, FilterDecision decision) {
+    record JudgedQuestion(McqItem item, FilterDecision decision, String competencyKey) {
     }
 
     /**

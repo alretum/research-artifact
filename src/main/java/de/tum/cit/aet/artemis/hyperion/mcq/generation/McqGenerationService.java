@@ -194,16 +194,25 @@ public class McqGenerationService {
     /**
      * Outcome of one whole-quiz generation attempt.
      *
-     * @param items         the structurally valid questions, possibly fewer than requested
+     * @param questions     the structurally valid questions, possibly fewer than requested
      * @param invalidCount  questions the model returned that failed validation or carried an unknown type
      * @param prompt        the rendered user prompt
      * @param call          telemetry for the call, always present
      * @param failure       {@code null} unless the call as a whole yielded nothing usable
      */
-    public record QuizResult(List<McqItem> items, int invalidCount, String prompt, CallRecord call, Failure failure) {
+    /**
+     * One generated question and the competency the model says it targets.
+     *
+     * @param declaredCompetency the competency title or key the model named, {@code null} when it named
+     *                           none; callers resolve it against the request's competencies
+     */
+    public record GeneratedQuestion(McqItem item, String declaredCompetency) {
+    }
+
+    public record QuizResult(List<GeneratedQuestion> questions, int invalidCount, String prompt, CallRecord call, Failure failure) {
 
         public QuizResult {
-            items = List.copyOf(items);
+            questions = List.copyOf(questions);
         }
     }
 
@@ -272,7 +281,7 @@ public class McqGenerationService {
             return new QuizResult(List.of(), 0, user, call.withFailureCategory(Failure.SCHEMA_VIOLATION.name()), Failure.SCHEMA_VIOLATION);
         }
 
-        List<McqItem> items = new ArrayList<>();
+        List<GeneratedQuestion> questions = new ArrayList<>();
         Set<QuestionType> allowedTypes = new LinkedHashSet<>(request.questionTypes());
         int invalid = 0;
         for (GeneratedQuizItem generated : quiz.questions()) {
@@ -281,12 +290,12 @@ public class McqGenerationService {
                 invalid++;
                 continue;
             }
-            items.add(item);
+            questions.add(new GeneratedQuestion(item, generated.competency()));
         }
-        if (items.isEmpty()) {
+        if (questions.isEmpty()) {
             return new QuizResult(List.of(), invalid, user, call.withFailureCategory(Failure.VALIDATION_VIOLATION.name()), Failure.VALIDATION_VIOLATION);
         }
-        return new QuizResult(items, invalid, user, call, null);
+        return new QuizResult(questions, invalid, user, call, null);
     }
 
     private static McqItem toQuizItem(GeneratedQuizItem generated) {
@@ -393,7 +402,7 @@ public class McqGenerationService {
     record GeneratedQuiz(List<GeneratedQuizItem> questions) {
     }
 
-    record GeneratedQuizItem(String type, String title, String questionText, List<GeneratedOption> options, String explanation) {
+    record GeneratedQuizItem(String type, String title, String questionText, List<GeneratedOption> options, String explanation, String competency) {
     }
 
     record GeneratedItem(String title, String questionText, List<GeneratedOption> options, String explanation) {

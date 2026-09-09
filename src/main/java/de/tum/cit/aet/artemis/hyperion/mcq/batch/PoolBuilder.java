@@ -234,7 +234,7 @@ public class PoolBuilder {
 
         McqGenerationService.QuizResult result = dependencies.generation().generateQuiz(request, competencyBlock(competency), grounding, claims.size(),
                 settings.generatorModel(), settings.generatorTemperature(), settings.generatorCallAttempts(), client);
-        List<McqItem> items = result.items();
+        List<McqGenerationService.GeneratedQuestion> items = result.questions();
         if (result.failure() != null || items.isEmpty()) {
             log.warn("Generation of {} items in {} failed with {}", claims.size(), cell.key(), result.failure());
         }
@@ -250,7 +250,7 @@ public class PoolBuilder {
                 store.recordFailure(claim.key(), ItemState.GENERATING, result.failure() == null ? "VALIDATION_VIOLATION" : result.failure().name(), write(calls), retry);
                 continue;
             }
-            McqItem item = items.get(index);
+            McqItem item = items.get(index).item();
             store.recordGenerated(claim.key(), write(item), write(provenance(claim, cell, grounding, item, result.prompt())), write(calls));
         }
     }

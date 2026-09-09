@@ -196,9 +196,9 @@ class McqGenerationServiceTest {
         var result = generateQuiz(Set.of(QuestionType.SINGLE_CHOICE, QuestionType.MULTIPLE_CHOICE));
 
         assertThat(result.failure()).isNull();
-        assertThat(result.items()).hasSize(2);
-        assertThat(result.items().get(0).type()).isEqualTo(QuestionType.SINGLE_CHOICE);
-        assertThat(result.items().get(1).type()).isEqualTo(QuestionType.MULTIPLE_CHOICE);
+        assertThat(result.questions()).hasSize(2);
+        assertThat(result.questions().get(0).item().type()).isEqualTo(QuestionType.SINGLE_CHOICE);
+        assertThat(result.questions().get(1).item().type()).isEqualTo(QuestionType.MULTIPLE_CHOICE);
         assertThat(result.invalidCount()).isEqualTo(1);
     }
 
@@ -230,7 +230,7 @@ class McqGenerationServiceTest {
         var result = generateQuiz(Set.of(QuestionType.SINGLE_CHOICE));
 
         assertThat(result.failure()).isNull();
-        assertThat(result.items()).hasSize(1);
+        assertThat(result.questions()).hasSize(1);
     }
 
     @Test
@@ -245,7 +245,7 @@ class McqGenerationServiceTest {
         var result = generateQuiz(Set.of(QuestionType.SINGLE_CHOICE));
 
         assertThat(result.failure()).isNull();
-        assertThat(result.items()).hasSize(1);
+        assertThat(result.questions()).hasSize(1);
     }
 
     @Test
@@ -277,8 +277,8 @@ class McqGenerationServiceTest {
 
         var result = generateQuiz(Set.of(QuestionType.SINGLE_CHOICE));
 
-        assertThat(result.items()).hasSize(1);
-        assertThat(result.items().getFirst().title()).isEqualTo("Q2");
+        assertThat(result.questions()).hasSize(1);
+        assertThat(result.questions().getFirst().item().title()).isEqualTo("Q2");
         assertThat(result.invalidCount()).isEqualTo(1);
     }
 

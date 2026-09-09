@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.stream.Stream;
 
@@ -105,7 +106,7 @@ public class SweepExporter {
             Map<String, Map<String, Object>> sidecarQuestions = new LinkedHashMap<>();
             for (JudgedQuestion question : questions) {
                 String questionId = "IT%04d".formatted(++questionCounter);
-                publicQuestions.add(publicQuestion(questionId, question.item(), request, manifests));
+                publicQuestions.add(publicQuestion(questionId, question, request, manifests));
                 sidecarQuestions.put(questionId, sidecarQuestion(question, stored));
             }
 
@@ -172,19 +173,44 @@ public class SweepExporter {
         }
     }
 
-    private BenchmarkQuestion publicQuestion(String questionId, McqItem item, GenerationRequest request, Map<String, CompetencyManifest> manifests) {
+    /**
+     * Renders one question for the benchmark.
+     * <p>
+     * The objective and Bloom level are those of the competency this question assesses, not of the request
+     * as a whole: the benchmark's objective-alignment and cognitive-level criteria score each question
+     * against these two fields, so a question targeting one of several requested competencies must carry
+     * that competency's values. A question without an attribution falls back to the request's competencies
+     * joined, which is what quizzes stored before questions carried one hold.
+     */
+    private BenchmarkQuestion publicQuestion(String questionId, JudgedQuestion question, GenerationRequest request, Map<String, CompetencyManifest> manifests) {
+        McqItem item = question.item();
         List<String> options = item.options().stream().map(AnswerOption::text).toList();
         List<String> correct = item.options().stream().filter(AnswerOption::correct).map(AnswerOption::text).toList();
         Object correctAnswer = switch (item.type()) {
             case MULTIPLE_CHOICE -> correct;
             case SINGLE_CHOICE, TRUE_FALSE -> correct.getFirst();
         };
+        Optional<Competency> targeted = competency(question.competencyKey(), request, manifests);
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("domain", DOMAINS.getOrDefault(request.courseKey(), request.courseKey().toLowerCase(Locale.ROOT)));
         metadata.put("language", request.language().code());
-        metadata.put("learning_objective", String.join("\n", objectives(request, manifests)));
-        metadata.put("bloom_intended", bloom(request, manifests));
+        targeted.ifPresent(competency -> metadata.put("competency", competency.title()));
+        metadata.put("learning_objective", targeted.map(SweepExporter::objective).orElseGet(() -> String.join("\n", objectives(request, manifests))));
+        metadata.put("bloom_intended", targeted.map(competency -> competency.taxonomy().name()).orElseGet(() -> bloom(request, manifests)));
         return new BenchmarkQuestion(questionId, type(item), item.questionText(), options, correctAnswer, null, metadata);
+    }
+
+    private static Optional<Competency> competency(String competencyKey, GenerationRequest request, Map<String, CompetencyManifest> manifests) {
+        if (competencyKey == null || competencyKey.isBlank()) {
+            return Optional.empty();
+        }
+        CompetencyManifest manifest = manifests.get(request.courseKey());
+        return manifest == null ? Optional.empty() : manifest.byKey(competencyKey);
+    }
+
+    private static String objective(Competency competency) {
+        String description = competency.description() == null || competency.description().isBlank() ? "" : ": " + competency.description();
+        return competency.title() + description;
     }
 
     private Map<String, Object> sidecarQuestion(JudgedQuestion question, StoredQuiz stored) {

@@ -31,6 +31,8 @@ Rules:
 - The question text must not reveal or hint at the correct answer.
 - Do not prefix options with letters or numbers.
 - Give every question a short, specific title of three to ten words, unique within the quiz.
+- Name the competency each question assesses in its `competency` field, copying one of the supplied
+  competency titles exactly. A question naming a competency that was not supplied is discarded.
 - The explanation of every question must state why the correct option is correct and why the distractors are wrong.
 - Aim every question at the requested difficulty.
 - Honour the further instructions of the request where given.
