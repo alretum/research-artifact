@@ -88,7 +88,7 @@ class SweepRunnerTest {
         List<RunStore.StoredQuiz> quizzes = store.quizzes("test-sweep");
         assertThat(quizzes).hasSize(4);
         assertThat(quizzes).allSatisfy(quiz -> assertThat(quiz.complete()).isTrue());
-        assertThat(quizzes).extracting(RunStore.StoredQuiz::configurationId).containsExactlyInAnyOrder("agentic|m|m", "agentic|m|m", "two-phase|m|m", "two-phase|m|m");
+        assertThat(quizzes).extracting(RunStore.StoredQuiz::configurationId).containsExactlyInAnyOrder("agentic|m|m|m", "agentic|m|m|m", "two-phase|m|m|m", "two-phase|m|m|m");
     }
 
     @Test

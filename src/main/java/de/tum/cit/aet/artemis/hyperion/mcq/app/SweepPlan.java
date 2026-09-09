@@ -59,10 +59,14 @@ public record SweepPlan(String sweep, String requestsFile, int repetitions, Pool
     public record Configuration(String id, Approach approach, String generator, String judge, String selector) {
 
         /**
-         * @return the identifier persisted with every quiz: {@code approach|generator|judge}
+         * Returns the identifier persisted with every quiz: {@code approach|generator|judge|selector}.
+         * <p>
+         * Every varied role appears, because this identity gates the resume check and is the key the quiz
+         * table is unique on. Omitting the selector would collapse configurations that differ only in it
+         * onto one identity, and the second of them would be skipped as already assembled.
          */
         public String configurationId() {
-            return approach.name().toLowerCase(java.util.Locale.ROOT).replace('_', '-') + "|" + generator + "|" + judge;
+            return approach.name().toLowerCase(java.util.Locale.ROOT).replace('_', '-') + "|" + generator + "|" + judge + "|" + selector;
         }
     }
 

@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -57,8 +58,8 @@ class SweepPlanTest {
         assertThat(plan.selection().temperature()).isEqualTo(0.9);
         assertThat(plan.agentic().maxRounds()).isEqualTo(4);
         assertThat(plan.configurations()).hasSize(2);
-        assertThat(plan.configurations().getFirst().configurationId()).isEqualTo("agentic|local|local");
-        assertThat(plan.configurations().getLast().configurationId()).isEqualTo("two-phase|local|cloud");
+        assertThat(plan.configurations().getFirst().configurationId()).isEqualTo("agentic|local|local|local");
+        assertThat(plan.configurations().getLast().configurationId()).isEqualTo("two-phase|local|cloud|cloud");
     }
 
     @Test
@@ -94,6 +95,22 @@ class SweepPlanTest {
         assertThat(plan.pool().questionTypes()).containsExactlyInAnyOrder(QuestionType.SINGLE_CHOICE, QuestionType.MULTIPLE_CHOICE);
         assertThat(plan.selection().maxCandidates()).isEqualTo(40);
         assertThat(plan.configurations().getFirst().selector()).isEqualTo("m");
+    }
+
+    @Test
+    void configurationId_distinguishesConfigurationsThatDifferOnlyInTheSelector() throws IOException {
+        SweepPlan plan = SweepPlan.load(file("""
+                sweep: grid
+                requests-file: r.yml
+                configurations:
+                  - { id: b-a-a, approach: two-phase, generator: a, judge: a, selector: a }
+                  - { id: b-a-b, approach: two-phase, generator: a, judge: a, selector: b }
+                """));
+
+        List<String> ids = plan.configurations().stream().map(SweepPlan.Configuration::configurationId).toList();
+
+        assertThat(ids).containsExactly("two-phase|a|a|a", "two-phase|a|a|b");
+        assertThat(ids).doesNotHaveDuplicates();
     }
 
     @Test

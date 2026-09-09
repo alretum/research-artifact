@@ -69,17 +69,17 @@ class SweepCostReporterTest {
     void report_pricesEachConfigurationFromItsQuizCalls() throws IOException {
         store.registerRun("s1", "sweep", "m");
         // agentic: 1M prompt + 100k completion cloud tokens -> 1.0 + 1.0 = 2.00 EUR
-        saveQuiz("agentic|cloud|cloud", "q1", List.of(call("cloud-model", 1_000_000, 100_000, 0)));
+        saveQuiz("agentic|cloud|cloud|cloud", "q1", List.of(call("cloud-model", 1_000_000, 100_000, 0)));
         // two-phase: selection only, 100k prompt + 10k completion -> 0.1 + 0.1 = 0.20 EUR
-        saveQuiz("two-phase|local|cloud", "q2", List.of(call("cloud-model", 100_000, 10_000, 0)));
+        saveQuiz("two-phase|local|cloud|cloud", "q2", List.of(call("cloud-model", 100_000, 10_000, 0)));
 
         SweepCostReporter.Report report = reporter.report(store, plan(), Map.of("cloud", "cloud-model", "local", "local-model"), pricing);
 
         assertThat(report.configurations()).hasSize(2);
-        SweepCostReporter.ConfigurationCost agentic = byId(report, "agentic|cloud|cloud");
+        SweepCostReporter.ConfigurationCost agentic = byId(report, "agentic|cloud|cloud|cloud");
         assertThat(agentic.quizzes()).isEqualTo(1);
         assertThat(agentic.total().midEur()).isCloseTo(2.0, org.assertj.core.data.Offset.offset(1e-9));
-        assertThat(byId(report, "two-phase|local|cloud").midEurPerQuiz()).isCloseTo(0.2, org.assertj.core.data.Offset.offset(1e-9));
+        assertThat(byId(report, "two-phase|local|cloud|cloud").midEurPerQuiz()).isCloseTo(0.2, org.assertj.core.data.Offset.offset(1e-9));
     }
 
     @Test
@@ -102,8 +102,8 @@ class SweepCostReporterTest {
     void report_computesTheBreakEvenQuizCount() throws IOException {
         store.registerRun("s1", "sweep", "m");
         store.registerRun("pool-local", "pool|local", "m");
-        saveQuiz("agentic|cloud|cloud", "q1", List.of(call("cloud-model", 1_000_000, 100_000, 0)));
-        saveQuiz("two-phase|local|cloud", "q2", List.of(call("cloud-model", 100_000, 10_000, 0)));
+        saveQuiz("agentic|cloud|cloud|cloud", "q1", List.of(call("cloud-model", 1_000_000, 100_000, 0)));
+        saveQuiz("two-phase|local|cloud|cloud", "q2", List.of(call("cloud-model", 100_000, 10_000, 0)));
         seedPoolItem(List.of(call("local-model", null, null, 3_600_000)));
 
         SweepCostReporter.Report report = reporter.report(store, plan(), Map.of("cloud", "cloud-model", "local", "local-model"), pricing);
@@ -120,7 +120,7 @@ class SweepCostReporterTest {
         store.registerRun("s1", "sweep", "m");
         List<CallRecord> mixed = List.of(call("cloud-model", "generation", 1000, 200), call("cloud-model", "generation", 900, 150),
                 call("cloud-model", "filter", 400, 50), call("cloud-model", "selection", 5000, 100));
-        store.saveQuiz(new StoredQuiz("q1", "s1", "two-phase|local|cloud", "EIDI", "r1", 1, true, "[{},{},{}]", "[]", mapper.writeValueAsString(mixed), 12));
+        store.saveQuiz(new StoredQuiz("q1", "s1", "two-phase|local|cloud|cloud", "EIDI", "r1", 1, true, "[{},{},{}]", "[]", mapper.writeValueAsString(mixed), 12));
 
         SweepCostReporter.Report report = reporter.report(store, plan(), Map.of("cloud", "cloud-model", "local", "local-model"), pricing);
 
