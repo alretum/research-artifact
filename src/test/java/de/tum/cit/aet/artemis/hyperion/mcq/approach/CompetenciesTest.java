@@ -35,6 +35,15 @@ class CompetenciesTest {
     }
 
     @Test
+    void match_resolvesATitleDeclaredWithTheTaxonomyThePromptShowed() {
+        GenerationRequest request = new GenerationRequest("r1", "EIDI", null, List.of("arrays", "streams"), null, Language.DE, Set.of(QuestionType.SINGLE_CHOICE), 2,
+                Difficulty.MEDIUM);
+
+        assertThat(Competencies.match(request, manifest(), "Arrays (APPLY)")).contains("arrays");
+        assertThat(Competencies.match(request, manifest(), "Streams (UNDERSTAND)")).contains("streams");
+    }
+
+    @Test
     void match_rejectsACompetencyTheRequestDoesNotName() {
         GenerationRequest request = new GenerationRequest("r1", "EIDI", null, List.of("arrays", "streams"), null, Language.DE, Set.of(QuestionType.SINGLE_CHOICE), 2,
                 Difficulty.MEDIUM);

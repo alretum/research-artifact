@@ -300,7 +300,7 @@ public class PoolBuilder {
 
     private static String competencyBlock(Competency competency) {
         String description = competency.description() == null ? "" : "\n" + competency.description();
-        return competency.title() + " (" + competency.taxonomy() + ")" + description;
+        return "Competency: " + competency.title() + "\nIntended cognitive level: " + competency.taxonomy() + description;
     }
 
     private ItemProvenance provenance(Claim claim, PoolCell cell, GroundingContext grounding, McqItem item, String prompt) {

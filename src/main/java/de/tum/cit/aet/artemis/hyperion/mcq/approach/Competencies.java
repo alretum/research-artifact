@@ -27,7 +27,7 @@ final class Competencies {
         StringBuilder rendered = new StringBuilder();
         for (String key : request.competencyKeys()) {
             Competency competency = resolve(request, manifest, key);
-            rendered.append(competency.title()).append(" (").append(competency.taxonomy()).append(")\n");
+            rendered.append("Competency: ").append(competency.title()).append("\nIntended cognitive level: ").append(competency.taxonomy()).append('\n');
             if (competency.description() != null && !competency.description().isBlank()) {
                 rendered.append(competency.description()).append('\n');
             }
@@ -56,14 +56,30 @@ final class Competencies {
         if (declared == null || declared.isBlank()) {
             return Optional.empty();
         }
-        String needle = declared.strip().toLowerCase(Locale.ROOT);
+        String needle = normalise(declared);
         for (String key : request.competencyKeys()) {
             Competency competency = resolve(request, manifest, key);
-            if (needle.equals(key.toLowerCase(Locale.ROOT)) || needle.equals(competency.title().strip().toLowerCase(Locale.ROOT))) {
+            if (needle.equals(normalise(key)) || needle.equals(normalise(competency.title()))) {
                 return Optional.of(key);
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * Strips a competency reference to what identifies it: lower case, no surrounding whitespace, and no
+     * trailing parenthesis.
+     * <p>
+     * Prompts present a competency as {@code Title (TAXONOMY)}, so a model copying what it was shown
+     * declares the taxonomy along with the title.
+     */
+    private static String normalise(String reference) {
+        String stripped = reference.strip();
+        int parenthesis = stripped.lastIndexOf('(');
+        if (parenthesis > 0 && stripped.endsWith(")")) {
+            stripped = stripped.substring(0, parenthesis).strip();
+        }
+        return stripped.toLowerCase(Locale.ROOT);
     }
 
     /**
