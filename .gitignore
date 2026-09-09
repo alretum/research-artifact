@@ -41,6 +41,7 @@ out/
 # carries the full prompt text, which embeds verbatim lecture material (see corpus/ above).
 evidence/
 
-# nohup run logs and jar copies at the repo root
+# Run artefacts at the repo root: nohup logs, jar copies, and rendered run summaries.
 *.log
 run.jar
+/*-summary.md
