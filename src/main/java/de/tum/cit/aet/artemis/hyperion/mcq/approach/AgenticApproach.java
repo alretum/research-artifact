@@ -126,7 +126,7 @@ public class AgenticApproach implements QuizGenerator {
             log.warn("Request {} remained incomplete after {} rounds: {} of {} questions accepted", request.key(), context.maxRounds(), accepted.size(),
                     request.numberOfQuestions());
         }
-        return new Quiz(accepted, rejected, calls, generated, complete);
+        return new Quiz(accepted, rejected, calls, generated, 0, complete);
     }
 
     private GroundingContext ground(GenerationRequest request, ApproachContext context) {

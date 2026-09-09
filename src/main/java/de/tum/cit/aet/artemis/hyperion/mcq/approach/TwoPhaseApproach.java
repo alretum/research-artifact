@@ -63,7 +63,7 @@ public class TwoPhaseApproach implements QuizGenerator {
         }
         if (byId.isEmpty()) {
             log.warn("Request {} matches no pooled candidates for judge {}; returning an incomplete quiz", request.key(), context.judge().model());
-            return new Quiz(List.of(), List.of(), List.of(), 0, false);
+            return new Quiz(List.of(), List.of(), List.of(), 0, 0, false);
         }
 
         List<Candidate> candidates = byId.values().stream().map(candidate -> new Candidate(candidate.id(), readItem(candidate.itemJson()))).toList();
@@ -72,7 +72,7 @@ public class TwoPhaseApproach implements QuizGenerator {
                 context.selection().selector().maxAttempts(), context.selection().selector().client());
         if (!result.succeeded()) {
             log.warn("Selection for request {} failed; returning an incomplete quiz", request.key());
-            return new Quiz(List.of(), List.of(), result.calls(), 0, false);
+            return new Quiz(List.of(), List.of(), result.calls(), 0, candidates.size(), false);
         }
 
         List<JudgedQuestion> accepted = new ArrayList<>();
@@ -85,7 +85,7 @@ public class TwoPhaseApproach implements QuizGenerator {
         if (!complete) {
             log.warn("Request {} selected {} of {} questions from {} candidates", request.key(), accepted.size(), request.numberOfQuestions(), candidates.size());
         }
-        return new Quiz(accepted, List.of(), result.calls(), 0, complete);
+        return new Quiz(accepted, List.of(), result.calls(), 0, candidates.size(), complete);
     }
 
     private static McqItem readItem(String json) {

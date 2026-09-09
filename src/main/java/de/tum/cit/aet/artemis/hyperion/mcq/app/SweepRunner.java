@@ -140,10 +140,11 @@ public class SweepRunner {
                     }
                     String quizId = plan.sweep() + "-" + configuration.id() + "-" + request.key() + "-r" + repetition;
                     dependencies.store().saveQuiz(new StoredQuiz(quizId, plan.sweep(), configuration.configurationId(), request.courseKey(), request.key(), repetition,
-                            quiz.complete(), mapper.writeValueAsString(quiz.accepted()), mapper.writeValueAsString(quiz.rejected()), mapper.writeValueAsString(quiz.calls())));
+                            quiz.complete(), mapper.writeValueAsString(quiz.accepted()), mapper.writeValueAsString(quiz.rejected()), mapper.writeValueAsString(quiz.calls()),
+                            quiz.candidateCount()));
                     assembled++;
-                    log.info("Assembled {} [{}/{}] ({} of {} questions{})", quizId, position, total, quiz.accepted().size(), request.numberOfQuestions(),
-                            quiz.complete() ? "" : ", INCOMPLETE");
+                    log.info("Assembled {} [{}/{}] ({} of {} questions{}{})", quizId, position, total, quiz.accepted().size(), request.numberOfQuestions(),
+                            quiz.candidateCount() == 0 ? "" : " from " + quiz.candidateCount() + " candidates", quiz.complete() ? "" : ", INCOMPLETE");
                 }
             }
         }
@@ -197,7 +198,7 @@ public class SweepRunner {
         if (!quiz.complete()) {
             log.warn("Request {} still incomplete for {} after {} top-up rounds", request.key(), configuration.configurationId(), rounds);
         }
-        return new Quiz(quiz.accepted(), quiz.rejected(), List.copyOf(calls), quiz.generatedCount(), quiz.complete());
+        return new Quiz(quiz.accepted(), quiz.rejected(), List.copyOf(calls), quiz.generatedCount(), quiz.candidateCount(), quiz.complete());
     }
 
     private ApproachContext context(SweepPlan.Configuration configuration, GenerationRequest request) {

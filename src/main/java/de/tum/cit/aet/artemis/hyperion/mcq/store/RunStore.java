@@ -172,6 +172,7 @@ public class RunStore implements AutoCloseable {
         addColumnIfMissing(connection, "item", "generator_model", "TEXT");
         addColumnIfMissing(connection, "verdict", "calls_json", "TEXT");
         addColumnIfMissing(connection, "quiz", "rejected_json", "TEXT");
+        addColumnIfMissing(connection, "quiz", "candidate_count", "INTEGER NOT NULL DEFAULT 0");
         try (Statement statement = connection.createStatement()) {
             statement.executeUpdate("CREATE INDEX IF NOT EXISTS pool_lookup ON item (course_key, competency_key, language, question_type, difficulty_band)");
         }
@@ -496,11 +497,12 @@ public class RunStore implements AutoCloseable {
      * One assembled quiz.
      *
      * @param quizJson     the accepted questions, as a JSON array of judged questions
-     * @param rejectedJson questions generated but rejected on the way, same shape; {@code null} on quizzes
-     *                     stored before rejected questions were recorded
+     * @param rejectedJson   questions generated but rejected on the way, same shape; {@code null} on
+     *                       quizzes stored before rejected questions were recorded
+     * @param candidateCount pooled questions the selector chose from, {@code 0} when none were pooled
      */
     public record StoredQuiz(String quizId, String runId, String configurationId, String courseKey, String requestKey, int repetition, boolean complete, String quizJson,
-            String rejectedJson, String callsJson) {
+            String rejectedJson, String callsJson, int candidateCount) {
     }
 
     /**
@@ -510,9 +512,10 @@ public class RunStore implements AutoCloseable {
      */
     public synchronized void saveQuiz(StoredQuiz quiz) {
         execute("""
-                INSERT OR REPLACE INTO quiz (quiz_id, run_id, configuration_id, course_key, request_key, repetition, complete, quiz_json, rejected_json, calls_json, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", quiz.quizId(), quiz.runId(), quiz.configurationId(), quiz.courseKey(), quiz.requestKey(), quiz.repetition(),
-                quiz.complete() ? 1 : 0, quiz.quizJson(), quiz.rejectedJson(), quiz.callsJson(), Instant.now().toString());
+                INSERT OR REPLACE INTO quiz (quiz_id, run_id, configuration_id, course_key, request_key, repetition, complete, quiz_json, rejected_json, calls_json,
+                    candidate_count, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", quiz.quizId(), quiz.runId(), quiz.configurationId(), quiz.courseKey(), quiz.requestKey(), quiz.repetition(),
+                quiz.complete() ? 1 : 0, quiz.quizJson(), quiz.rejectedJson(), quiz.callsJson(), quiz.candidateCount(), Instant.now().toString());
     }
 
     /**
@@ -570,7 +573,7 @@ public class RunStore implements AutoCloseable {
      */
     public synchronized Optional<StoredQuiz> quiz(String quizId) {
         try (PreparedStatement statement = connection.prepareStatement("""
-                SELECT quiz_id, run_id, configuration_id, course_key, request_key, repetition, complete, quiz_json, rejected_json, calls_json
+                SELECT quiz_id, run_id, configuration_id, course_key, request_key, repetition, complete, quiz_json, rejected_json, calls_json, candidate_count
                 FROM quiz WHERE quiz_id = ?""")) {
             statement.setString(1, quizId);
             try (ResultSet rows = statement.executeQuery()) {
@@ -578,7 +581,7 @@ public class RunStore implements AutoCloseable {
                     return Optional.empty();
                 }
                 return Optional.of(new StoredQuiz(rows.getString(1), rows.getString(2), rows.getString(3), rows.getString(4), rows.getString(5), rows.getInt(6),
-                        rows.getInt(7) != 0, rows.getString(8), rows.getString(9), rows.getString(10)));
+                        rows.getInt(7) != 0, rows.getString(8), rows.getString(9), rows.getString(10), rows.getInt(11)));
             }
         }
         catch (SQLException e) {
@@ -595,13 +598,13 @@ public class RunStore implements AutoCloseable {
     public synchronized List<StoredQuiz> quizzes(String runId) {
         List<StoredQuiz> quizzes = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement("""
-                SELECT quiz_id, run_id, configuration_id, course_key, request_key, repetition, complete, quiz_json, rejected_json, calls_json
+                SELECT quiz_id, run_id, configuration_id, course_key, request_key, repetition, complete, quiz_json, rejected_json, calls_json, candidate_count
                 FROM quiz WHERE run_id = ? ORDER BY configuration_id, request_key, repetition""")) {
             statement.setString(1, runId);
             try (ResultSet rows = statement.executeQuery()) {
                 while (rows.next()) {
                     quizzes.add(new StoredQuiz(rows.getString(1), rows.getString(2), rows.getString(3), rows.getString(4), rows.getString(5), rows.getInt(6), rows.getInt(7) != 0,
-                            rows.getString(8), rows.getString(9), rows.getString(10)));
+                            rows.getString(8), rows.getString(9), rows.getString(10), rows.getInt(11)));
                 }
             }
         }
@@ -620,13 +623,13 @@ public class RunStore implements AutoCloseable {
     public synchronized List<StoredQuiz> quizzesOfApproach(String approach) {
         List<StoredQuiz> quizzes = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement("""
-                SELECT quiz_id, run_id, configuration_id, course_key, request_key, repetition, complete, quiz_json, rejected_json, calls_json
+                SELECT quiz_id, run_id, configuration_id, course_key, request_key, repetition, complete, quiz_json, rejected_json, calls_json, candidate_count
                 FROM quiz WHERE configuration_id LIKE ? ESCAPE '\\' ORDER BY run_id, configuration_id, request_key, repetition""")) {
             statement.setString(1, approach.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "|%");
             try (ResultSet rows = statement.executeQuery()) {
                 while (rows.next()) {
                     quizzes.add(new StoredQuiz(rows.getString(1), rows.getString(2), rows.getString(3), rows.getString(4), rows.getString(5), rows.getInt(6), rows.getInt(7) != 0,
-                            rows.getString(8), rows.getString(9), rows.getString(10)));
+                            rows.getString(8), rows.getString(9), rows.getString(10), rows.getInt(11)));
                 }
             }
         }

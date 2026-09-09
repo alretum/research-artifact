@@ -64,8 +64,24 @@ public class SweepCostReporter {
     public record Amortisation(String configurationId, String against, double poolMidEur, double agenticMidEurPerQuiz, double twoPhaseMidEurPerQuiz, int breakEvenQuizzes) {
     }
 
+    /**
+     * What one configuration spent per pipeline stage, and how much of the pool it chose from.
+     * <p>
+     * Phase costs cannot be recovered from an aggregate: pool building is paid once per pool while
+     * selection is paid once per quiz, and the amortisation model needs them apart.
+     *
+     * @param callsByStage            calls issued per {@code CallRecord} stage
+     * @param promptTokensByStage     prompt tokens per stage
+     * @param completionTokensByStage completion tokens per stage
+     * @param selectionRatio          accepted questions over pooled candidates, {@code 0} when nothing
+     *                                was pooled
+     */
+    public record PhaseUsage(String configurationId, Map<String, Integer> callsByStage, Map<String, Long> promptTokensByStage, Map<String, Long> completionTokensByStage,
+            double selectionRatio) {
+    }
+
     /** Everything the report derives. */
-    public record Report(List<ConfigurationCost> configurations, List<PoolCost> pools, List<Amortisation> amortisations) {
+    public record Report(List<ConfigurationCost> configurations, List<PoolCost> pools, List<Amortisation> amortisations, List<PhaseUsage> phases) {
     }
 
     /**
@@ -95,9 +111,43 @@ public class SweepCostReporter {
 
         List<PoolCost> pools = poolCosts(store, plan, calculator);
         List<Amortisation> amortisations = amortisations(plan, keyToModel, configurations, pools);
-        Report report = new Report(List.copyOf(configurations), pools, amortisations);
+        Report report = new Report(List.copyOf(configurations), pools, amortisations, phaseUsage(store, plan));
         log.info("Sweep {} cost:\n{}", plan.sweep(), render(report));
         return report;
+    }
+
+    private List<PhaseUsage> phaseUsage(RunStore store, SweepPlan plan) {
+        Map<String, Map<String, Integer>> calls = new LinkedHashMap<>();
+        Map<String, Map<String, Long>> prompt = new LinkedHashMap<>();
+        Map<String, Map<String, Long>> completion = new LinkedHashMap<>();
+        Map<String, Integer> accepted = new LinkedHashMap<>();
+        Map<String, Integer> candidates = new LinkedHashMap<>();
+        for (StoredQuiz quiz : store.quizzes(plan.sweep())) {
+            String id = quiz.configurationId();
+            for (CallRecord record : calls(quiz.callsJson())) {
+                String stage = record.stage() == null ? "unknown" : record.stage();
+                calls.computeIfAbsent(id, _ -> new LinkedHashMap<>()).merge(stage, 1, Integer::sum);
+                prompt.computeIfAbsent(id, _ -> new LinkedHashMap<>()).merge(stage, record.promptTokens() == null ? 0L : record.promptTokens(), Long::sum);
+                completion.computeIfAbsent(id, _ -> new LinkedHashMap<>()).merge(stage, record.completionTokens() == null ? 0L : record.completionTokens(), Long::sum);
+            }
+            accepted.merge(id, questionCount(quiz.quizJson()), Integer::sum);
+            candidates.merge(id, quiz.candidateCount(), Integer::sum);
+        }
+        List<PhaseUsage> usage = new ArrayList<>();
+        calls.forEach((id, byStage) -> {
+            int pooled = candidates.getOrDefault(id, 0);
+            double ratio = pooled == 0 ? 0 : (double) accepted.getOrDefault(id, 0) / pooled;
+            usage.add(new PhaseUsage(id, Map.copyOf(byStage), Map.copyOf(prompt.getOrDefault(id, Map.of())), Map.copyOf(completion.getOrDefault(id, Map.of())), ratio));
+        });
+        return List.copyOf(usage);
+    }
+
+    private int questionCount(String quizJson) {
+        if (quizJson == null || quizJson.isBlank()) {
+            return 0;
+        }
+        return reader.readValue(quizJson, new TypeReference<List<Object>>() {
+        }).size();
     }
 
     private List<PoolCost> poolCosts(RunStore store, SweepPlan plan, CostCalculator calculator) {
@@ -178,6 +228,18 @@ public class SweepCostReporter {
                     .append("%.4f €".formatted(amortisation.poolMidEur())).append(", per quiz ").append("%.4f".formatted(amortisation.twoPhaseMidEurPerQuiz())).append(" vs ")
                     .append("%.4f €".formatted(amortisation.agenticMidEurPerQuiz())).append(" → break-even after ")
                     .append(amortisation.breakEvenQuizzes() < 0 ? "∞ (never)" : amortisation.breakEvenQuizzes() + " quizzes");
+        }
+        out.append("\n\n| configuration | stage | calls | prompt tok | completion tok |\n|---|---|---|---|---|\n");
+        for (PhaseUsage usage : report.phases()) {
+            for (Map.Entry<String, Integer> stage : usage.callsByStage().entrySet()) {
+                out.append("| ").append(usage.configurationId()).append(" | ").append(stage.getKey()).append(" | ").append(stage.getValue()).append(" | ")
+                        .append(usage.promptTokensByStage().getOrDefault(stage.getKey(), 0L)).append(" | ")
+                        .append(usage.completionTokensByStage().getOrDefault(stage.getKey(), 0L)).append(" |\n");
+            }
+            if (usage.selectionRatio() > 0) {
+                out.append("  selection ratio of ").append(usage.configurationId()).append(": ").append("%.3f".formatted(usage.selectionRatio()))
+                        .append(" accepted per pooled candidate\n");
+            }
         }
         out.append("\nLocal GPU time is client wall-clock, which includes queue and network waits: an upper bound until server-side timings are joined in.");
         return out.toString();

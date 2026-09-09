@@ -48,7 +48,7 @@ class SweepExporterTest {
         store = new RunStore(directory.resolve("run.db"));
         store.registerRun("sweep1", "sweep", "manifest");
         store.saveQuiz(new StoredQuiz("sweep1-agentic-r1", "sweep1", "agentic|local|local", "EIDI", "eidi-r1", 1, true,
-                mapper.writeValueAsString(List.of(judged(singleChoice()), judged(multipleChoice()))), "[]", "[]"));
+                mapper.writeValueAsString(List.of(judged(singleChoice()), judged(multipleChoice()))), "[]", "[]", 0));
     }
 
     @AfterEach
@@ -96,8 +96,7 @@ class SweepExporterTest {
     @Test
     void export_stampsEachQuestionWithItsOwnCompetencysObjectiveAndBloomLevel() throws IOException {
         store.saveQuiz(new StoredQuiz("sweep1-two-competencies", "sweep1", "agentic|local|local", "EIDI", "eidi-r2", 1, true,
-                mapper.writeValueAsString(List.of(judged(singleChoice(), "arrays"), judged(multipleChoice(), "streams"))), "[]",
-                "[]"));
+                mapper.writeValueAsString(List.of(judged(singleChoice(), "arrays"), judged(multipleChoice(), "streams"))), "[]", "[]", 0));
 
         exporter.export(store, "sweep1", List.of(request(), twoCompetencyRequest()), twoCompetencyManifests(), directory.resolve("out"));
 

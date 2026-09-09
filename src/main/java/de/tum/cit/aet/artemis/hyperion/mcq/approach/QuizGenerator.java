@@ -90,8 +90,10 @@ public interface QuizGenerator {
      * question in generated ones.
      *
      * @param generatedCount every structurally valid question the generator produced, accepted or not
+     * @param candidateCount pooled questions the selector chose from; {@code 0} for approaches that
+     *                       generate at request time, and the denominator of the selection ratio
      */
-    record Quiz(List<JudgedQuestion> accepted, List<JudgedQuestion> rejected, List<CallRecord> calls, int generatedCount, boolean complete) {
+    record Quiz(List<JudgedQuestion> accepted, List<JudgedQuestion> rejected, List<CallRecord> calls, int generatedCount, int candidateCount, boolean complete) {
 
         public Quiz {
             accepted = List.copyOf(accepted);

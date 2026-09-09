@@ -230,7 +230,7 @@ class RunStorePoolTest {
 
     @Test
     void switchTo_movesTheStoreBetweenDatabases() {
-        store.saveQuiz(new RunStore.StoredQuiz("q1", "s1", "agentic|m|m", "EIDI", "r1", 1, true, "[]", "[]", "[]"));
+        store.saveQuiz(new RunStore.StoredQuiz("q1", "s1", "agentic|m|m", "EIDI", "r1", 1, true, "[]", "[]", "[]", 0));
 
         store.switchTo(directory.resolve("other.db"));
 
@@ -244,8 +244,8 @@ class RunStorePoolTest {
 
     @Test
     void quizzesOfApproach_returnsOnlyThatApproach() {
-        store.saveQuiz(new RunStore.StoredQuiz("q1", "s1", "agentic|cloud|cloud", "EIDI", "r1", 1, true, "[]", "[]", "[]"));
-        store.saveQuiz(new RunStore.StoredQuiz("q2", "s1", "two-phase|local|cloud", "EIDI", "r1", 1, true, "[]", "[]", "[]"));
+        store.saveQuiz(new RunStore.StoredQuiz("q1", "s1", "agentic|cloud|cloud", "EIDI", "r1", 1, true, "[]", "[]", "[]", 0));
+        store.saveQuiz(new RunStore.StoredQuiz("q2", "s1", "two-phase|local|cloud", "EIDI", "r1", 1, true, "[]", "[]", "[]", 0));
 
         assertThat(store.quizzesOfApproach("agentic")).extracting(RunStore.StoredQuiz::quizId).containsExactly("q1");
     }

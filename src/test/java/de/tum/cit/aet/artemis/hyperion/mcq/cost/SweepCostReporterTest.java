@@ -115,6 +115,23 @@ class SweepCostReporterTest {
         assertThat(amortisation.breakEvenQuizzes()).isEqualTo(2);
     }
 
+    @Test
+    void report_splitsUsageByStageAndReportsTheSelectionRatio() throws IOException {
+        store.registerRun("s1", "sweep", "m");
+        List<CallRecord> mixed = List.of(call("cloud-model", "generation", 1000, 200), call("cloud-model", "generation", 900, 150),
+                call("cloud-model", "filter", 400, 50), call("cloud-model", "selection", 5000, 100));
+        store.saveQuiz(new StoredQuiz("q1", "s1", "two-phase|local|cloud", "EIDI", "r1", 1, true, "[{},{},{}]", "[]", mapper.writeValueAsString(mixed), 12));
+
+        SweepCostReporter.Report report = reporter.report(store, plan(), Map.of("cloud", "cloud-model", "local", "local-model"), pricing);
+
+        assertThat(report.phases()).hasSize(1);
+        SweepCostReporter.PhaseUsage usage = report.phases().getFirst();
+        assertThat(usage.callsByStage()).containsEntry("generation", 2).containsEntry("filter", 1).containsEntry("selection", 1);
+        assertThat(usage.promptTokensByStage()).containsEntry("generation", 1900L).containsEntry("selection", 5000L);
+        assertThat(usage.completionTokensByStage()).containsEntry("generation", 350L);
+        assertThat(usage.selectionRatio()).isCloseTo(0.25, org.assertj.core.data.Offset.offset(1e-9));
+    }
+
     private static SweepPlan plan() {
         return new SweepPlan("s1", "r.yml", 1, new SweepPlan.Pool(2, 2, 4, Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM)),
                 new SweepPlan.Selection(40, 0.7, 1, 0), new SweepPlan.Agentic(3), List.of(new SweepPlan.Configuration("a", SweepPlan.Approach.AGENTIC, "cloud", "cloud", "cloud"),
@@ -126,7 +143,7 @@ class SweepCostReporterTest {
     }
 
     private void saveQuiz(String configurationId, String quizId, List<CallRecord> calls) throws IOException {
-        store.saveQuiz(new StoredQuiz(quizId, "s1", configurationId, "EIDI", "r1", 1, true, "[]", "[]", mapper.writeValueAsString(calls)));
+        store.saveQuiz(new StoredQuiz(quizId, "s1", configurationId, "EIDI", "r1", 1, true, "[]", "[]", mapper.writeValueAsString(calls), 0));
     }
 
     private void seedPoolItem(List<CallRecord> calls) throws IOException {
@@ -144,5 +161,9 @@ class SweepCostReporterTest {
 
     private static CallRecord call(String model, Integer promptTokens, Integer completionTokens, long wallClockMs) {
         return new CallRecord("id", "generation", model, promptTokens, completionTokens, wallClockMs, 0, "success", null, null);
+    }
+
+    private static CallRecord call(String model, String stage, Integer promptTokens, Integer completionTokens) {
+        return new CallRecord("id", stage, model, promptTokens, completionTokens, 0, 0, "success", null, null);
     }
 }
