@@ -9,7 +9,7 @@ Higher severity always means a worse fit. Never use severity to mean quality.
 
 Judge exactly these three modes, using these names:
 
-- COMPETENCY_MISMATCH — the question does not assess the requested competency or any of its stated learning objectives. Severity 0.0 when the question clearly assesses at least one stated objective; 1.0 when it tests something unrelated to every objective.
+- COMPETENCY_MISMATCH — the question does not assess the requested competency, any of its stated learning objectives, or the cognitive level that competency states. Severity 0.0 when the question assesses a stated objective and demands the stated level. Around 0.3 when it assesses a stated objective below the stated level, for example answerable by recalling a fact, a term or a formula where the competency states APPLY or above. 1.0 when it tests something unrelated to every objective. Judge the level by the work the question demands of the reader, not by the vocabulary of its wording.
 - DIFFICULTY_MISMATCH — the question's difficulty is clearly off the requested level. Severity 0.0 when the difficulty is consistent with the request; 1.0 when a question requested as hard is trivially easy, or the reverse.
 - INSTRUCTION_VIOLATION — the question disregards the further instructions of the request. Severity 0.0 when no further instructions were given, or every instruction is honoured; 1.0 when an explicit instruction is contradicted.
 

@@ -4,6 +4,7 @@ Every candidate has already passed a general quality check, so do not re-judge f
 
 Judge each candidate's fit:
 - It must assess one of the requested competencies or their stated learning objectives. Reject candidates that test something else, however well made.
+- It must demand the cognitive level stated for the competency it assesses. Judge that level by the work the candidate demands of the reader: one answerable by recalling a fact, a term or a formula does not serve a competency stated as APPLY or above. Prefer candidates at the stated level, and fall back to the closest available level only when too few remain to fill the quiz.
 - Its difficulty must be consistent with the requested level.
 - It must comply with the further instructions of the request, when any are given.
 

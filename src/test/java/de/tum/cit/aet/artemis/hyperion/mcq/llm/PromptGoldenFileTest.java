@@ -51,7 +51,8 @@ class PromptGoldenFileTest {
     @Test
     void quizCompetencyUserPromptMatchesItsGoldenFile() throws IOException {
         check("/prompts/mcq/mcq_generate_quiz_user_competency.st",
-                quizVariables("competencies", "Arrays (APPLY)\n- Du kannst Arrays erstellen.\n- Du kannst auf Elemente im Array zugreifen."));
+                quizVariables("competencies",
+                        "Competency: Arrays\nIntended cognitive level: APPLY\n- Du kannst Arrays erstellen.\n- Du kannst auf Elemente im Array zugreifen."));
     }
 
     @Test
@@ -128,7 +129,9 @@ class PromptGoldenFileTest {
     }
 
     private static Map<String, Object> requestVariables() {
-        return Map.of("competencies", "Arrays (APPLY)\n- Du kannst Arrays erstellen.\n- Du kannst auf Elemente im Array zugreifen.", "difficulty", 50, "instructions", "(none)");
+        return Map.of("competencies",
+                "Competency: Arrays\nIntended cognitive level: APPLY\n- Du kannst Arrays erstellen.\n- Du kannst auf Elemente im Array zugreifen.", "difficulty", 50,
+                "instructions", "(none)");
     }
 
     private static Map<String, Object> withQuestion(Map<String, Object> variables) {

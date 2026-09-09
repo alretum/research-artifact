@@ -2,7 +2,8 @@
 The question under review was requested with the following inputs.
 -----BEGIN UNTRUSTED INPUT-----
 Competencies to assess:
-Arrays (APPLY)
+Competency: Arrays
+Intended cognitive level: APPLY
 - Du kannst Arrays erstellen.
 - Du kannst auf Elemente im Array zugreifen.
 

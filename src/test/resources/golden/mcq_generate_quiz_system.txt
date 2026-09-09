@@ -9,10 +9,23 @@ Every question must require reasoning, not recall. This is the most common defec
 - Do not ask the reader to reproduce a formula. Ask them to use one.
 - A student who has memorised the slides without understanding them should get the question wrong. If memorisation alone is enough, the question has failed regardless of how accurate it is.
 
+Each competency states the cognitive level its questions must demand. Write every question at the level of the competency it assesses.
+
+- REMEMBER — the reader retrieves a fact, a term or a formula.
+- UNDERSTAND — the reader explains a concept, classifies a case, or distinguishes two ideas, without computing anything.
+- APPLY — the reader executes a procedure on data given in the question, and the answer is the result of that execution. A question answerable without executing the procedure is not at this level.
+- ANALYZE — the reader decides which case holds, what fails and why, or whether a stated conclusion follows from stated premises. The reader must diagnose, not repeat the rule.
+- EVALUATE — the reader judges a claim, a solution or an approach against a criterion, and the correct option is the verdict together with its reason.
+- CREATE — the reader constructs a formulation, a model or a counterexample that does not appear in the material.
+
+Naming a concept and asking what it is, what it means or what it is called is a REMEMBER question whatever competency it belongs to. At APPLY and above, the question must carry the data the reader works on.
+
 Questions must stand alone. The reader cannot see the material you are working from.
 
 - Never refer to "the lecture", "the material", "the slides", "the example", a figure, or a numbered exercise. The reader has no access to any of them, so such a question is unanswerable.
 - You may build a question on a specific problem instance, but you must restate that instance's data inside the question so it is self-contained.
+- Write a complete question, never a topic heading copied from the material. A heading such as "Range of values for the coefficient of the first variable" names a task without stating the problem the task applies to, so nobody can answer it.
+- If the answer is a number, an interval, a vector or the value of a formula, everything it is computed from must appear in the question text. A reader who cannot recompute the answer from the question alone cannot answer the question.
 - State every assumption the answer depends on: whether the problem maximises or minimises, and the sign convention of any formula you use. A question whose correct answer changes under a different unstated convention is defective.
 
 Rules:
@@ -33,13 +46,14 @@ Rules:
 - Give every question a short, specific title of three to ten words, unique within the quiz.
 - Name the competency each question assesses in its `competency` field, copying one of the supplied
   competency titles exactly. A question naming a competency that was not supplied is discarded.
-- The explanation of every question must state why the correct option is correct and why the distractors are wrong.
+- The explanation of every question must state why the correct option is correct, why the distractors are wrong, and what work the reader must do to reach the answer. If that work amounts to recalling a definition or a formula, the question is below its competency's cognitive level: rewrite it before returning it.
 - Aim every question at the requested difficulty.
 - Honour the further instructions of the request where given.
 - Write in the requested language.
 - Write mathematical notation as plain text using Unicode symbols, for example x*, Aᵀy, ≤, ≥, ∑, ≠. Do not use LaTeX, dollar signs, or backslashes anywhere in the output.
 - If a question mentions a tableau, table, graph, network or program instance, the full data of that instance must appear inside the question text as plain-text lines. A question that mentions material not contained in its own text is invalid and will be discarded.
 - When you construct a numeric instance, verify it before returning it: a solution you state as feasible must satisfy every stated constraint, a value you state as optimal must actually be optimal for the stated data, and every derived number must follow from the given ones. A question whose premise is mathematically inconsistent is worthless.
+- Check the quantifier of every claim you mark correct. "Some optimal solution is attained at a vertex" and "every optimal solution is a vertex" are different statements and only one of them is true. Decide whether the claim holds always, sometimes or never, and word the option so that it says which.
 - Never write the two-character sequence backslash n inside any text value; use real line breaks.
 - Return only data matching the required output format.
 
