@@ -70,13 +70,13 @@ public record SweepPlan(String sweep, String requestsFile, int repetitions, Pool
      * How the pool behind the two-phase configurations is built.
      *
      * @param itemsPerCell  questions a fresh cell is filled with
-     * @param subsections   groups a competency's retrieved material is cut into
-     * @param retrievalTopM snippets retrieved per competency before partitioning
+     * @param generationBatchSize largest number of questions one generation call may produce
+     * @param retrievalTopM snippets retrieved per competency
      * @param languages     pool grid languages
      * @param questionTypes pool grid question types
      * @param difficulties  pool grid difficulties
      */
-    public record Pool(int itemsPerCell, int subsections, int retrievalTopM, Set<Language> languages, Set<QuestionType> questionTypes, Set<Difficulty> difficulties) {
+    public record Pool(int itemsPerCell, int generationBatchSize, int retrievalTopM, Set<Language> languages, Set<QuestionType> questionTypes, Set<Difficulty> difficulties) {
     }
 
     /**
@@ -169,7 +169,7 @@ public record SweepPlan(String sweep, String requestsFile, int repetitions, Pool
     }
 
     private static Pool pool(Map<String, Object> node) {
-        return new Pool(integer(node, "items-per-cell", 20), integer(node, "subsections", 5), integer(node, "retrieval-top-m", 40), languages(node), types(node),
+        return new Pool(integer(node, "items-per-cell", 20), integer(node, "generation-batch-size", 12), integer(node, "retrieval-top-m", 40), languages(node), types(node),
                 difficulties(node));
     }
 

@@ -56,7 +56,7 @@ requests-file: config/requests/smoke.yml
 repetitions: 2
 pool:
   items-per-cell: 4
-  subsections: 2
+  generation-batch-size: 12
   retrieval-top-m: 12
   languages: [en]              # keep the grid small for a smoke test
   question-types: [single-choice]

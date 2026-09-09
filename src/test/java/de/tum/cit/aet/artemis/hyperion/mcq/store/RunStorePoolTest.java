@@ -49,6 +49,39 @@ class RunStorePoolTest {
     }
 
     @Test
+    void claimBatch_splitsACellEvenlyOverTheCallsItNeeds() {
+        store.enqueuePool(poolItems(20));
+
+        List<RunStore.Claim> first = store.claimBatch("run1", 12);
+        List<RunStore.Claim> second = store.claimBatch("run1", 12);
+
+        assertThat(first).hasSize(10);
+        assertThat(second).hasSize(10);
+        assertThat(store.claimBatch("run1", 12)).isEmpty();
+    }
+
+    @Test
+    void claimBatch_claimsOneCellAtATime() {
+        PoolCell other = new PoolCell("EIDI", "streams", Language.DE, QuestionType.SINGLE_CHOICE, Difficulty.MEDIUM);
+        store.enqueuePool(List.of(new PoolItem(new ItemKey("run1", "two-phase|local|local", CELL.key(), 0), CELL, 0, "gen-local"),
+                new PoolItem(new ItemKey("run1", "two-phase|local|local", other.key(), 0), other, 0, "gen-local")));
+
+        List<RunStore.Claim> batch = store.claimBatch("run1", 12);
+
+        assertThat(batch).hasSize(1);
+        assertThat(batch.getFirst().key().topicKey()).isEqualTo(CELL.key());
+    }
+
+    @Test
+    void claimBatch_neverExceedsTheBatchSize() {
+        store.enqueuePool(poolItems(5));
+
+        assertThat(store.claimBatch("run1", 2)).hasSize(2);
+        assertThat(store.claimBatch("run1", 2)).hasSize(2);
+        assertThat(store.claimBatch("run1", 2)).hasSize(1);
+    }
+
+    @Test
     void poolCandidates_returnsOnlyItemsTheGivenJudgeAccepted() {
         store.enqueuePool(poolItems(3));
         generateAll(3);

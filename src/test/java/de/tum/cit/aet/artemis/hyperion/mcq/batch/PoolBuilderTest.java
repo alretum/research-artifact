@@ -81,8 +81,8 @@ class PoolBuilderTest {
     }
 
     @Test
-    void build_fillsEveryCellSpanningTheSubsections() {
-        when(generatorModel.call(any(Prompt.class))).thenAnswer(_ -> response(quizJson()));
+    void build_fillsEveryCellWithOneGenerationCallPerBatch() {
+        when(generatorModel.call(any(Prompt.class))).thenAnswer(_ -> response(quizJson(2)));
         when(judgeModel.call(any(Prompt.class))).thenAnswer(_ -> response(verdictJson(0.0)));
 
         int created = builder.enqueue(hashes("v1"));
@@ -90,10 +90,21 @@ class PoolBuilderTest {
 
         assertThat(created).isEqualTo(4);
         assertThat(completed).isEqualTo(8);
-        List<RunStore.PoolCandidate> candidates = store.poolCandidates(CELL_A, "gen-model", "judge-model", null);
-        assertThat(candidates).hasSize(2);
-        assertThat(candidates).extracting(RunStore.PoolCandidate::sectionIndex).containsExactlyInAnyOrder(0, 1);
+        org.mockito.Mockito.verify(generatorModel, org.mockito.Mockito.times(2)).call(any(Prompt.class));
+        assertThat(store.poolCandidates(CELL_A, "gen-model", "judge-model", null)).hasSize(2);
         assertThat(store.poolCandidates(cellB(), "gen-model", "judge-model", null)).hasSize(2);
+    }
+
+    @Test
+    void build_retriesTheItemsABatchDidNotCover() {
+        when(generatorModel.call(any(Prompt.class))).thenAnswer(_ -> response(quizJson(1)));
+        when(judgeModel.call(any(Prompt.class))).thenAnswer(_ -> response(verdictJson(0.0)));
+
+        builder.enqueue(hashes("v1"));
+        builder.build(ChatClient.create(generatorModel), ChatClient.create(judgeModel));
+
+        assertThat(store.poolCandidates(CELL_A, "gen-model", "judge-model", null)).hasSize(2);
+        org.mockito.Mockito.verify(generatorModel, org.mockito.Mockito.times(4)).call(any(Prompt.class));
     }
 
     @Test
@@ -117,7 +128,7 @@ class PoolBuilderTest {
 
     @Test
     void judgeWith_addsASecondJudgesVerdictsWithoutRegenerating() {
-        when(generatorModel.call(any(Prompt.class))).thenAnswer(_ -> response(quizJson()));
+        when(generatorModel.call(any(Prompt.class))).thenAnswer(_ -> response(quizJson(2)));
         when(judgeModel.call(any(Prompt.class))).thenAnswer(_ -> response(verdictJson(0.0)));
         builder.enqueue(hashes("v1"));
         builder.build(ChatClient.create(generatorModel), ChatClient.create(judgeModel));
@@ -134,8 +145,9 @@ class PoolBuilderTest {
         assertThat(store.poolCandidates(CELL_A, "gen-model", "second-judge", null)).isEmpty();
     }
 
-    private PoolBuilder.Settings settings(int subsections) {
-        return new PoolBuilder.Settings("run1", "two-phase|gen|judge", "EIDI", Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM), 2, subsections,
+    private PoolBuilder.Settings settings(int generationBatchSize) {
+        return new PoolBuilder.Settings("run1", "two-phase|gen|judge", "EIDI", Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM), 2,
+                generationBatchSize,
                 8, 6000, 0.7, null, "gen-model", 0.7, 1, "judge-model", 0.2, 1, 2);
     }
 
@@ -165,14 +177,13 @@ class PoolBuilderTest {
         return new ChatResponse(List.of(new Generation(new AssistantMessage(content))));
     }
 
-    private static String quizJson() {
-        return """
-                { "questions": [
-                  { "type": "single-choice", "title": "Idempotenz von HTTP", "questionText": "Welche Methode ist idempotent?",
+    private static String quizJson(int questions) {
+        List<String> rendered = java.util.stream.IntStream.range(0, questions).mapToObj(index -> """
+                  { "type": "single-choice", "title": "Idempotenz %d", "questionText": "Welche Methode ist idempotent (%d)?",
                     "options": [ { "text": "PUT", "correct": true }, { "text": "POST", "correct": false },
                                  { "text": "PATCH", "correct": false }, { "text": "CONNECT", "correct": false } ],
-                    "explanation": "PUT ist idempotent." } ] }
-                """;
+                    "explanation": "PUT ist idempotent." }""".formatted(index, index)).toList();
+        return "{ \"questions\": [" + String.join(",", rendered) + "] }";
     }
 
     private static String verdictJson(double severity) {

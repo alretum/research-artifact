@@ -31,7 +31,6 @@ import de.tum.cit.aet.artemis.hyperion.mcq.grounding.GroundingAssemblyService;
 import de.tum.cit.aet.artemis.hyperion.mcq.grounding.SnippetSource;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyManifest;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyManifest.Competency;
-import de.tum.cit.aet.artemis.hyperion.mcq.ingest.SubsectionPartitioner;
 import de.tum.cit.aet.artemis.hyperion.mcq.llm.StructuredOutputs;
 import de.tum.cit.aet.artemis.hyperion.mcq.store.ItemState;
 import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore;
@@ -42,14 +41,15 @@ import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore.UnjudgedItem;
 
 /**
  * Builds and maintains the question pool for one course: every cell of the input grid, filled with
- * questions grounded in one subsection each, judged at {@link FilterScope#GENERAL} at pool entry.
+ * questions generated in batches of at most {@code generationBatchSize} and judged at
+ * {@link FilterScope#GENERAL} at pool entry.
  * <p>
  * The build is incremental. Each document's content hash is compared to the hash recorded on the previous
  * build; a cell is touched when its competency's retrieval draws on a new or changed document. A touched
  * cell grows by {@code itemsPerCell} further questions, an untouched cell that already holds its target is
  * left alone, and re-running against an unchanged corpus enqueues nothing. Grounding for an item is
- * recomputed from its cell and stored section index, so judging can happen in a later pass — or by a second
- * judge — without persisting prompt-sized grounding per item.
+ * recomputed from its cell, so judging can happen in a later pass — or by a second judge — without
+ * persisting prompt-sized grounding per item.
  */
 public class PoolBuilder {
 
@@ -66,12 +66,12 @@ public class PoolBuilder {
      * Parameters of one pool build, fixed for the builder's lifetime.
      *
      * @param itemsPerCell    questions a fresh cell is filled with, and a touched cell grows by
-     * @param subsections     groups a competency's retrieved material is cut into
-     * @param retrievalTopM   snippets retrieved per competency before partitioning
+     * @param generationBatchSize largest number of questions one generation call may produce
+     * @param retrievalTopM   snippets retrieved per competency
      * @param gatingModes     failure modes whose severity decides pool acceptance
      */
     public record Settings(String runId, String configurationId, String courseKey, Set<Language> languages, Set<QuestionType> questionTypes, Set<Difficulty> difficulties,
-            int itemsPerCell, int subsections, int retrievalTopM, int maxGroundingTokens, double acceptThreshold, Set<FailureMode> gatingModes, String generatorModel,
+            int itemsPerCell, int generationBatchSize, int retrievalTopM, int maxGroundingTokens, double acceptThreshold, Set<FailureMode> gatingModes, String generatorModel,
             double generatorTemperature, int generatorCallAttempts, String judgeModel, double judgeTemperature, int judgeCallAttempts, int maxOutputAttempts) {
     }
 
@@ -121,8 +121,7 @@ public class PoolBuilder {
                 target = existing;
             }
             for (int index = existing; index < target; index++) {
-                items.add(new PoolItem(new ItemKey(settings.runId(), settings.configurationId(), cell.key(), index), cell, index % settings.subsections(),
-                        settings.generatorModel()));
+                items.add(new PoolItem(new ItemKey(settings.runId(), settings.configurationId(), cell.key(), index), cell, 0, settings.generatorModel()));
             }
         }
 
@@ -144,8 +143,7 @@ public class PoolBuilder {
         for (PoolCell cell : cells) {
             int existing = store.itemCountForTopic(settings.runId(), settings.configurationId(), cell.key());
             for (int index = existing; index < existing + additional; index++) {
-                items.add(new PoolItem(new ItemKey(settings.runId(), settings.configurationId(), cell.key(), index), cell, index % settings.subsections(),
-                        settings.generatorModel()));
+                items.add(new PoolItem(new ItemKey(settings.runId(), settings.configurationId(), cell.key(), index), cell, 0, settings.generatorModel()));
             }
         }
         return store.enqueuePool(items);
@@ -169,17 +167,19 @@ public class PoolBuilder {
                 ItemState.progress(store.stateCounts(settings.runId())));
         int completed = 0;
         while (true) {
-            var claim = store.claimNext(settings.runId());
-            if (claim.isEmpty()) {
+            var judging = store.claimForFiltering(settings.runId());
+            if (judging.isPresent()) {
+                judge(judging.get(), judgeClient);
+                completed++;
+                log.info("Pool {}: {}", settings.runId(), ItemState.progress(store.stateCounts(settings.runId())));
+                continue;
+            }
+            List<Claim> batch = store.claimBatch(settings.runId(), settings.generationBatchSize());
+            if (batch.isEmpty()) {
                 return completed;
             }
-            if (claim.get().state() == ItemState.GENERATING) {
-                generate(claim.get(), generatorClient);
-            }
-            else {
-                judge(claim.get(), judgeClient);
-            }
-            completed++;
+            generate(batch, generatorClient);
+            completed += batch.size();
             log.info("Pool {}: {}", settings.runId(), ItemState.progress(store.stateCounts(settings.runId())));
         }
     }
@@ -202,7 +202,7 @@ public class PoolBuilder {
         for (UnjudgedItem unjudged : missing) {
             visited++;
             PoolCell cell = PoolCell.fromKey(unjudged.cellKey());
-            GroundingContext grounding = ground(cell, unjudged.sectionIndex());
+            GroundingContext grounding = ground(cell);
             McqItem item = read(unjudged.itemJson());
             McqFilterService.Result result = dependencies.filter().evaluate(item, grounding, FilterScope.GENERAL, null, settings.acceptThreshold(), settings.gatingModes(),
                     judgeModel, temperature, maxAttempts, client);
@@ -218,28 +218,46 @@ public class PoolBuilder {
         return judged;
     }
 
-    private void generate(Claim claim, ChatClient client) {
-        PoolCell cell = PoolCell.fromKey(claim.key().topicKey());
+    /**
+     * Generate one batch of items with a single call.
+     * <p>
+     * All claims belong to one cell, so they share a grounding block and a request. Returned questions are
+     * paired with claims in order; a claim left without a question is failed and retried in a later batch.
+     * The call record is stored on the first claim only, because one call produced the whole batch and
+     * recording it per item would multiply the batch's cost by its size at report time.
+     */
+    private void generate(List<Claim> claims, ChatClient client) {
+        PoolCell cell = PoolCell.fromKey(claims.getFirst().key().topicKey());
         Competency competency = competencyOf(cell);
-        GroundingContext grounding = ground(cell, claim.sectionIndex());
-        GenerationRequest request = cellRequest(cell);
+        GroundingContext grounding = ground(cell);
+        GenerationRequest request = cellRequest(cell, claims.size());
 
-        McqGenerationService.QuizResult result = dependencies.generation().generateQuiz(request, competencyBlock(competency), grounding, 1, settings.generatorModel(),
-                settings.generatorTemperature(), settings.generatorCallAttempts(), client);
-        List<CallRecord> calls = append(claim.callsJson(), result.call());
-        if (result.failure() != null || result.items().isEmpty()) {
-            boolean retry = claim.generationAttempts() + 1 < settings.maxOutputAttempts();
-            log.warn("Generation of {} failed with {} (attempt {}/{}){}", claim.key(), result.failure(), claim.generationAttempts() + 1, settings.maxOutputAttempts(),
-                    retry ? ", will retry" : ", giving up");
-            store.recordFailure(claim.key(), ItemState.GENERATING, result.failure() == null ? "VALIDATION_VIOLATION" : result.failure().name(), write(calls), retry);
-            return;
+        McqGenerationService.QuizResult result = dependencies.generation().generateQuiz(request, competencyBlock(competency), grounding, claims.size(),
+                settings.generatorModel(), settings.generatorTemperature(), settings.generatorCallAttempts(), client);
+        List<McqItem> items = result.items();
+        if (result.failure() != null || items.isEmpty()) {
+            log.warn("Generation of {} items in {} failed with {}", claims.size(), cell.key(), result.failure());
         }
-        store.recordGenerated(claim.key(), write(result.items().getFirst()), write(provenance(claim, cell, grounding, result)), write(calls));
+        else if (items.size() < claims.size()) {
+            log.warn("Generation in {} returned {} of {} requested questions", cell.key(), items.size(), claims.size());
+        }
+
+        for (int index = 0; index < claims.size(); index++) {
+            Claim claim = claims.get(index);
+            List<CallRecord> calls = index == 0 ? append(claim.callsJson(), result.call()) : List.of();
+            if (index >= items.size()) {
+                boolean retry = claim.generationAttempts() + 1 < settings.maxOutputAttempts();
+                store.recordFailure(claim.key(), ItemState.GENERATING, result.failure() == null ? "VALIDATION_VIOLATION" : result.failure().name(), write(calls), retry);
+                continue;
+            }
+            McqItem item = items.get(index);
+            store.recordGenerated(claim.key(), write(item), write(provenance(claim, cell, grounding, item, result.prompt())), write(calls));
+        }
     }
 
     private void judge(Claim claim, ChatClient client) {
         PoolCell cell = PoolCell.fromKey(claim.key().topicKey());
-        GroundingContext grounding = ground(cell, claim.sectionIndex());
+        GroundingContext grounding = ground(cell);
         McqItem item = read(claim.generatedItemJson());
 
         McqFilterService.Result result = dependencies.filter().evaluate(item, grounding, FilterScope.GENERAL, null, settings.acceptThreshold(), settings.gatingModes(),
@@ -257,12 +275,10 @@ public class PoolBuilder {
                 .ifPresent(rowId -> store.recordVerdict(rowId, settings.judgeModel(), FilterScope.GENERAL.name(), result.decision().accepted(), write(result.decision()), null));
     }
 
-    private GroundingContext ground(PoolCell cell, int sectionIndex) {
+    private GroundingContext ground(PoolCell cell) {
         Competency competency = competencyOf(cell);
         List<Snippet> retrieved = dependencies.snippets().search(competency.retrievalQuery(), settings.retrievalTopM(), cell.courseKey());
-        List<List<Snippet>> sections = SubsectionPartitioner.partitionSnippets(retrieved, settings.subsections());
-        List<Snippet> section = sections.get(Math.min(sectionIndex, sections.size() - 1));
-        return dependencies.groundingAssembly().assemble(competency.title(), section, settings.maxGroundingTokens());
+        return dependencies.groundingAssembly().assemble(competency.title(), retrieved, settings.maxGroundingTokens());
     }
 
     private boolean retrievesFromChangedDocument(PoolCell cell, Set<String> changedDocuments) {
@@ -277,8 +293,8 @@ public class PoolBuilder {
                         "Cell " + cell.key() + " names competency '" + cell.competencyKey() + "', which the course model does not declare"));
     }
 
-    private GenerationRequest cellRequest(PoolCell cell) {
-        return new GenerationRequest("pool-" + cell.key(), cell.courseKey(), null, List.of(cell.competencyKey()), null, cell.language(), Set.of(cell.questionType()), 1,
+    private GenerationRequest cellRequest(PoolCell cell, int count) {
+        return new GenerationRequest("pool-" + cell.key(), cell.courseKey(), null, List.of(cell.competencyKey()), null, cell.language(), Set.of(cell.questionType()), count,
                 cell.difficulty());
     }
 
@@ -287,10 +303,10 @@ public class PoolBuilder {
         return competency.title() + " (" + competency.taxonomy() + ")" + description;
     }
 
-    private ItemProvenance provenance(Claim claim, PoolCell cell, GroundingContext grounding, McqGenerationService.QuizResult result) {
+    private ItemProvenance provenance(Claim claim, PoolCell cell, GroundingContext grounding, McqItem item, String prompt) {
         List<String> chunkIds = grounding.snippets().stream().map(Snippet::chunkId).toList();
-        return new ItemProvenance(claim.key().runId(), claim.key().configurationId(), settings.generatorModel(), settings.judgeModel(), cell.competencyKey(), chunkIds,
-                result.prompt(), claim.difficulty(), LengthStats.of(result.items().getFirst()), false, grounding.composition(), java.time.Instant.now());
+        return new ItemProvenance(claim.key().runId(), claim.key().configurationId(), settings.generatorModel(), settings.judgeModel(), cell.competencyKey(), chunkIds, prompt,
+                claim.difficulty(), LengthStats.of(item), false, grounding.composition(), java.time.Instant.now());
     }
 
     private static List<CallRecord> append(String callsJson, CallRecord call) {

@@ -284,7 +284,7 @@ public class RunStore implements AutoCloseable {
     /**
      * One intended pool item.
      *
-     * @param sectionIndex which of the competency's subsections grounds this item
+     * @param sectionIndex retained for items enqueued before batched generation; 0 for new items
      */
     public record PoolItem(ItemKey key, PoolCell cell, int sectionIndex, String generatorModel) {
     }
@@ -757,26 +757,97 @@ public class RunStore implements AutoCloseable {
         return claim(runId, ItemState.GENERATED, ItemState.FILTERING).or(() -> claim(runId, ItemState.PENDING, ItemState.GENERATING));
     }
 
+    /**
+     * Claim one generated item for judging, without taking on new generation work.
+     *
+     * @param runId run to claim in
+     * @return the claimed item, empty when no generated item awaits a verdict
+     */
+    public synchronized Optional<Claim> claimForFiltering(String runId) {
+        return claim(runId, ItemState.GENERATED, ItemState.FILTERING);
+    }
+
+    /**
+     * Claim the pending items of one cell for a single generation call.
+     * <p>
+     * All returned claims share a topic key, so one call can generate for all of them from one grounding
+     * block. The batch is sized so the cell's remaining items divide evenly over the calls still needed:
+     * twenty items at a batch size of twelve are claimed as ten and ten rather than twelve and eight, so
+     * every call in the run asks for a comparable number of questions.
+     *
+     * @param runId     run to claim in
+     * @param batchSize largest number of items one generation call may produce; must be at least 1
+     * @return the claimed items, empty when the run has no pending item left
+     * @throws IllegalArgumentException if {@code batchSize} is below 1
+     */
+    public synchronized List<Claim> claimBatch(String runId, int batchSize) {
+        if (batchSize < 1) {
+            throw new IllegalArgumentException("batchSize must be at least 1, got " + batchSize);
+        }
+        Optional<String> cell = queryString("SELECT topic_key FROM item WHERE run_id = ? AND state = ? ORDER BY topic_key, item_index LIMIT 1", runId,
+                ItemState.PENDING.name());
+        if (cell.isEmpty()) {
+            return List.of();
+        }
+        int pending = countPending(runId, cell.get());
+        int calls = (pending + batchSize - 1) / batchSize;
+        int size = (pending + calls - 1) / calls;
+
+        List<Claim> claims = new ArrayList<>();
+        for (int index = 0; index < size; index++) {
+            Optional<Claim> claimed = claimIn(runId, cell.get());
+            if (claimed.isEmpty()) {
+                break;
+            }
+            claims.add(claimed.get());
+        }
+        return List.copyOf(claims);
+    }
+
+    private int countPending(String runId, String topicKey) {
+        try (PreparedStatement statement = connection.prepareStatement("SELECT COUNT(*) FROM item WHERE run_id = ? AND topic_key = ? AND state = ?")) {
+            statement.setString(1, runId);
+            statement.setString(2, topicKey);
+            statement.setString(3, ItemState.PENDING.name());
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next() ? rows.getInt(1) : 0;
+            }
+        }
+        catch (SQLException e) {
+            throw new IllegalStateException("Failed to count pending items of " + topicKey, e);
+        }
+    }
+
+    private Optional<Claim> claimIn(String runId, String topicKey) {
+        int updated = execute("""
+                UPDATE item SET state = ?, updated_at = ?
+                WHERE rowid = (SELECT rowid FROM item WHERE run_id = ? AND topic_key = ? AND state = ? ORDER BY item_index LIMIT 1)""", ItemState.GENERATING.name(),
+                Instant.now().toString(), runId, topicKey, ItemState.PENDING.name());
+        return updated == 0 ? Optional.empty() : latestClaim(runId, ItemState.GENERATING);
+    }
+
     private Optional<Claim> claim(String runId, ItemState from, ItemState to) {
         int updated = execute("""
                 UPDATE item SET state = ?, updated_at = ?
                 WHERE rowid = (SELECT rowid FROM item WHERE run_id = ? AND state = ? ORDER BY topic_key, item_index LIMIT 1)""", to.name(), Instant.now().toString(), runId,
                 from.name());
-        if (updated == 0) {
-            return Optional.empty();
-        }
+        return updated == 0 ? Optional.empty() : latestClaim(runId, to);
+    }
+
+    private Optional<Claim> latestClaim(String runId, ItemState state) {
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT configuration_id, topic_key, item_index, difficulty, COALESCE(section_index, 0), generation_attempts, filter_attempts, item_json, provenance_json,
                     calls_json
-                FROM item WHERE run_id = ? AND state = ? ORDER BY updated_at DESC LIMIT 1""")) {
+                FROM item WHERE run_id = ? AND state = ? ORDER BY updated_at DESC, item_index DESC LIMIT 1""")) {
             statement.setString(1, runId);
-            statement.setString(2, to.name());
+            statement.setString(2, state.name());
             try (ResultSet rows = statement.executeQuery()) {
                 if (!rows.next()) {
                     return Optional.empty();
                 }
                 ItemKey key = new ItemKey(runId, rows.getString(1), rows.getString(2), rows.getInt(3));
-                return Optional.of(new Claim(key, to, rows.getInt(4), rows.getInt(5), rows.getInt(6), rows.getInt(7), rows.getString(8), rows.getString(9), rows.getString(10)));
+                return Optional
+                        .of(new Claim(key, state, rows.getInt(4), rows.getInt(5), rows.getInt(6), rows.getInt(7), rows.getString(8), rows.getString(9), rows.getString(10)));
             }
         }
         catch (SQLException e) {

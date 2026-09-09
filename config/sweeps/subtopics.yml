@@ -9,7 +9,7 @@ requests-file: config/requests/subtopics.yml
 repetitions: 1
 pool:
   items-per-cell: 20
-  subsections: 5
+  generation-batch-size: 12
   retrieval-top-m: 15
   languages: [en]
   question-types: [single-choice]

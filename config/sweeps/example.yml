@@ -6,7 +6,7 @@ requests-file: config/requests/example.yml
 repetitions: 3
 pool:
   items-per-cell: 20
-  subsections: 5
+  generation-batch-size: 12
   retrieval-top-m: 40
   languages: [de, en]
   question-types: [single-choice, multiple-choice]

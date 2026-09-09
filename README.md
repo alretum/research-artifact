@@ -154,7 +154,7 @@ That product is the bulk of the cost; widen it deliberately.
 |---|---|---|
 | questions per cell (competency × language × type × difficulty) | sweep | `pool.items-per-cell` |
 | which languages / question types / difficulties get cells | sweep | `pool.languages`, `pool.question-types`, `pool.difficulties` |
-| how a cell's grounding is spread across the material | sweep | `pool.subsections`, `pool.retrieval-top-m` |
+| questions per generation call, and material retrieved per competency | sweep | `pool.generation-batch-size`, `pool.retrieval-top-m` |
 | questions per quiz | requests | `number-of-questions` |
 | quizzes per configuration per request | sweep | `repetitions` |
 | pool growth when a request cannot be filled (0 disables) | sweep | `selection.top-up-rounds` |

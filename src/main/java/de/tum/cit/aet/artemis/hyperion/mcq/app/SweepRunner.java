@@ -219,7 +219,7 @@ public class SweepRunner {
     private PoolBuilder.Settings poolSettings(String generatorKey, String courseKey, ResolvedModel generator, ResolvedModel judge) {
         PipelineProperties properties = dependencies.properties();
         return new PoolBuilder.Settings("pool-" + generatorKey, "pool|" + generatorKey, courseKey, plan.pool().languages(), plan.pool().questionTypes(),
-                plan.pool().difficulties(), plan.pool().itemsPerCell(), plan.pool().subsections(), plan.pool().retrievalTopM(), properties.retrieval().maxGroundingTokens(),
+                plan.pool().difficulties(), plan.pool().itemsPerCell(), plan.pool().generationBatchSize(), plan.pool().retrievalTopM(), properties.retrieval().maxGroundingTokens(),
                 properties.filter().acceptThreshold(), properties.filter().gatingModes(), generator.model(), properties.generation().temperature(),
                 properties.generation().maxAttempts(), judge.model(), properties.filter().temperature(), properties.filter().maxAttempts(),
                 properties.batch().maxOutputAttempts());

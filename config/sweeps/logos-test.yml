@@ -10,7 +10,7 @@ requests-file: config/requests/logos-test.yml
 repetitions: 2
 pool:
   items-per-cell: 2
-  subsections: 2
+  generation-batch-size: 12
   retrieval-top-m: 8
   languages: [en]
   question-types: [single-choice]

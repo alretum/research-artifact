@@ -27,7 +27,7 @@ class SweepPlanTest {
                 repetitions: 3
                 pool:
                   items-per-cell: 20
-                  subsections: 5
+                  generation-batch-size: 6
                   retrieval-top-m: 40
                   languages: [de]
                   question-types: [single-choice]
@@ -89,6 +89,7 @@ class SweepPlanTest {
 
         assertThat(plan.repetitions()).isEqualTo(3);
         assertThat(plan.pool().itemsPerCell()).isEqualTo(20);
+        assertThat(plan.pool().generationBatchSize()).isEqualTo(12);
         assertThat(plan.pool().languages()).containsExactlyInAnyOrder(Language.values());
         assertThat(plan.pool().questionTypes()).containsExactlyInAnyOrder(QuestionType.SINGLE_CHOICE, QuestionType.MULTIPLE_CHOICE);
         assertThat(plan.selection().maxCandidates()).isEqualTo(40);
