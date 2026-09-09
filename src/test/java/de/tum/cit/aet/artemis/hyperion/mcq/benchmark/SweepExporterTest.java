@@ -70,7 +70,8 @@ class SweepExporterTest {
         assertThat(quiz.get("instructions")).isEqualTo("eidi-r1.json");
         List<Map<String, Object>> questions = questions(quiz);
         assertThat(questions).hasSize(2);
-        assertThat(questions.getFirst().get("question_id")).isEqualTo("IT0001");
+        assertThat(questions.getFirst().get("question_id")).isEqualTo("sweep1-agentic-r1-q0");
+        assertThat(questions.getLast().get("question_id")).isEqualTo("sweep1-agentic-r1-q1");
         assertThat(questions.getFirst().get("question_type")).isEqualTo("single_choice");
         assertThat(questions.getFirst().get("correct_answer")).isEqualTo("PUT");
         assertThat(questions.getLast().get("question_type")).isEqualTo("multiple_choice");
@@ -142,8 +143,8 @@ class SweepExporterTest {
 
         assertThat(quizPart.get("provenance")).isEqualTo("ai");
         assertThat(quizPart.get("generator_id")).isEqualTo("agentic|local|local");
-        assertThat(questionPart.keySet()).containsExactlyInAnyOrder("IT0001", "IT0002");
-        assertThat(String.valueOf(questionPart.get("IT0001"))).contains("PUT ist idempotent.");
+        assertThat(questionPart.keySet()).containsExactlyInAnyOrder("sweep1-agentic-r1-q0", "sweep1-agentic-r1-q1");
+        assertThat(String.valueOf(questionPart.get("sweep1-agentic-r1-q0"))).contains("PUT ist idempotent.");
     }
 
     @Test

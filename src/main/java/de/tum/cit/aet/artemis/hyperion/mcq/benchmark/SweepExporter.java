@@ -37,6 +37,10 @@ import de.tum.cit.aet.artemis.hyperion.mcq.store.RunStore.StoredQuiz;
  * Writes a sweep's assembled quizzes as benchmark input: a public quiz JSON per quiz, a private
  * {@code *.key.json} sidecar next to it, one instructions JSON per request, and a ready benchmark config.
  * <p>
+ * Question ids are scoped to their quiz — {@code <quiz_id>-q<index>} — so exporting a different set of
+ * quizzes, or one more of them, leaves every other question's id unchanged and benchmark results stay
+ * joinable across exports.
+ * <p>
  * The split follows the validation corpus's two-file model. The public file carries only what a rater or
  * judge may see: no explanation, no source reference wording that reveals the course material, and no
  * generator identity. Everything hidden — provenance, the generating configuration, explanations, filter
@@ -88,7 +92,6 @@ public class SweepExporter {
         }
 
         List<Path> written = new ArrayList<>();
-        int questionCounter = 0;
         for (StoredQuiz stored : store.quizzes(sweepId)) {
             GenerationRequest request = requestsByKey.get(stored.requestKey());
             if (request == null) {
@@ -104,8 +107,9 @@ public class SweepExporter {
 
             List<BenchmarkQuestion> publicQuestions = new ArrayList<>();
             Map<String, Map<String, Object>> sidecarQuestions = new LinkedHashMap<>();
-            for (JudgedQuestion question : questions) {
-                String questionId = "IT%04d".formatted(++questionCounter);
+            for (int index = 0; index < questions.size(); index++) {
+                JudgedQuestion question = questions.get(index);
+                String questionId = stored.quizId() + "-q" + index;
                 publicQuestions.add(publicQuestion(questionId, question, request, manifests));
                 sidecarQuestions.put(questionId, sidecarQuestion(question, stored));
             }

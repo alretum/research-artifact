@@ -71,7 +71,8 @@ each request asked for, an added prompt roughly 2.4×-es the judge cost and inje
 
 ## 4. Use the results
 
-Results land in `results/` as rows keyed by `(quiz_id, question_id)` with `metric_name`, `score`,
+Results land in `results/` as rows keyed by `(quiz_id, question_id)` — question ids are
+`<quiz_id>-q<index>`, stable across exports — with `metric_name`, `score`,
 `evaluator_model` and the judge's raw response. Joining them to experimental variables:
 
 - `quiz_id` → the sidecar's `quiz.generator_id` gives the configuration (`approach|generator|judge`);
