@@ -69,8 +69,10 @@ class TwoPhaseApproachTest {
         selectorModel = mock(ChatModel.class);
         lenient().when(selectorModel.getOptions()).thenReturn(OpenAiChatOptions.builder().build());
         approach = new TwoPhaseApproach(new PoolSelectionService(new PromptTemplateService()));
-        context = new ApproachContext(manifest(), store, (query, limit, courseKey) -> List.of(), new ModelCall(null, "gen-model", 0.7, 1), new ModelCall(null, "judge-model", 0.2, 1), 8,
-                6000, 0.7, 3, new SelectionSettings(new ModelCall(ChatClient.create(selectorModel), "selector-model", 0.7, 1), 40, null));
+        context = new ApproachContext(manifest(), store, (query, limit, courseKey) -> List.of(), new ModelCall(null, "gen-model", 0.7, 1),
+                new ModelCall(null, "judge-model", 0.2, 1),
+                8,
+                6000, 0.7, null, 3, new SelectionSettings(new ModelCall(ChatClient.create(selectorModel), "selector-model", 0.7, 1), 40, null));
         pooledIds = seedPool(4);
     }
 

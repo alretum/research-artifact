@@ -34,6 +34,7 @@ import de.tum.cit.aet.artemis.hyperion.mcq.approach.TwoPhaseApproach;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Difficulty;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.GenerationRequest;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Language;
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.FailureMode;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.QuestionType;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.Snippet;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.SourceRole;
@@ -167,7 +168,8 @@ class SweepRunnerTest {
     private static PipelineProperties properties() {
         return new PipelineProperties("corpus", "data/run-log.jsonl", "data/items.md", "data/extraction.csv", "data/topics.csv", "data/probe.csv", "config/pricing.yml",
                 "config/models.yml", "data/benchmark", "config/runs", "", "config/competencies.yml", "de", List.of(50), new PipelineProperties.Chunking(500, 1200, "data/index"),
-                new PipelineProperties.Retrieval(4, 6000), new PipelineProperties.Generation("test-model", 0.7, 1), new PipelineProperties.Filter("test-model", 0.2, 1, 0.7, null),
+                new PipelineProperties.Retrieval(4, 6000), new PipelineProperties.Generation("test-model", 0.7, 1), new PipelineProperties.Filter("test-model", 0.2, 1, 0.7,
+                        Set.of(FailureMode.FACTUAL_ERROR, FailureMode.AMBIGUOUS_CORRECT_ANSWER, FailureMode.OFF_TOPIC, FailureMode.ILL_FORMED_DISTRACTORS)),
                 new PipelineProperties.Batch("data/run.db", 1, 2));
     }
 

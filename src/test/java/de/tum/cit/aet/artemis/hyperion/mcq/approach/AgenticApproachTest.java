@@ -28,6 +28,7 @@ import de.tum.cit.aet.artemis.hyperion.mcq.approach.QuizGenerator.Quiz;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Difficulty;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.GenerationRequest;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Language;
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.FailureMode;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.QuestionType;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.Snippet;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.SourceRole;
@@ -59,7 +60,8 @@ class AgenticApproachTest {
         PromptTemplateService templates = new PromptTemplateService();
         approach = new AgenticApproach(new GroundingAssemblyService(), new McqGenerationService(templates), new McqFilterService(templates));
         context = new ApproachContext(manifest(), null, (query, limit, courseKey) -> List.of(snippet()), new ModelCall(ChatClient.create(generatorModel), "gen-model", 0.7, 1),
-                new ModelCall(ChatClient.create(judgeModel), "judge-model", 0.2, 1), 8, 6000, 0.7, 3, null);
+                new ModelCall(ChatClient.create(judgeModel), "judge-model", 0.2, 1), 8, 6000, 0.7,
+                Set.of(FailureMode.FACTUAL_ERROR, FailureMode.AMBIGUOUS_CORRECT_ANSWER, FailureMode.OFF_TOPIC, FailureMode.ILL_FORMED_DISTRACTORS), 3, null);
     }
 
     @Test
@@ -130,6 +132,18 @@ class AgenticApproachTest {
     }
 
     @Test
+    void generate_rejectsAQuestionThatDoesNotFitTheRequest() {
+        when(generatorModel.call(any(Prompt.class))).thenReturn(response(quiz(question("Q one", "PUT"), question("Q two", "DELETE"))));
+        when(judgeModel.call(any(Prompt.class))).thenReturn(response(fitVerdict(0.9)));
+
+        Quiz quiz = approach.generate(request(2), context);
+
+        assertThat(quiz.complete()).isFalse();
+        assertThat(quiz.accepted()).isEmpty();
+        assertThat(quiz.rejected()).hasSize(2);
+    }
+
+    @Test
     void generate_rejectsACompetencyTheCourseModelDoesNotDeclare() {
         GenerationRequest request = new GenerationRequest("r1", "EIDI", null, List.of("streams"), null, Language.DE, Set.of(QuestionType.SINGLE_CHOICE), 2, Difficulty.MEDIUM);
 
@@ -166,7 +180,21 @@ class AgenticApproachTest {
                 """.formatted(title, title, correct);
     }
 
-    private static String verdict(double competencyMismatch) {
+    private static String verdict(double factualError) {
+        return """
+                { "rationale": "checked", "modes": [
+                  { "mode": "FACTUAL_ERROR", "severity": %s, "triggered": false, "justification": "a" },
+                  { "mode": "AMBIGUOUS_CORRECT_ANSWER", "severity": 0.0, "triggered": false, "justification": "b" },
+                  { "mode": "OFF_TOPIC", "severity": 0.0, "triggered": false, "justification": "c" },
+                  { "mode": "NEAR_DUPLICATE", "severity": 0.0, "triggered": false, "justification": "d" },
+                  { "mode": "ILL_FORMED_DISTRACTORS", "severity": 0.0, "triggered": false, "justification": "e" },
+                  { "mode": "COMPETENCY_MISMATCH", "severity": 0.0, "triggered": false, "justification": "f" },
+                  { "mode": "DIFFICULTY_MISMATCH", "severity": 0.0, "triggered": false, "justification": "g" },
+                  { "mode": "INSTRUCTION_VIOLATION", "severity": 0.0, "triggered": false, "justification": "h" } ] }
+                """.formatted(factualError);
+    }
+
+    private static String fitVerdict(double competencyMismatch) {
         return """
                 { "rationale": "checked", "modes": [
                   { "mode": "FACTUAL_ERROR", "severity": 0.0, "triggered": false, "justification": "a" },
@@ -174,7 +202,7 @@ class AgenticApproachTest {
                   { "mode": "OFF_TOPIC", "severity": 0.0, "triggered": false, "justification": "c" },
                   { "mode": "NEAR_DUPLICATE", "severity": 0.0, "triggered": false, "justification": "d" },
                   { "mode": "ILL_FORMED_DISTRACTORS", "severity": 0.0, "triggered": false, "justification": "e" },
-                  { "mode": "COMPETENCY_MISMATCH", "severity": %s, "triggered": false, "justification": "f" },
+                  { "mode": "COMPETENCY_MISMATCH", "severity": %s, "triggered": true, "justification": "f" },
                   { "mode": "DIFFICULTY_MISMATCH", "severity": 0.0, "triggered": false, "justification": "g" },
                   { "mode": "INSTRUCTION_VIOLATION", "severity": 0.0, "triggered": false, "justification": "h" } ] }
                 """.formatted(competencyMismatch);

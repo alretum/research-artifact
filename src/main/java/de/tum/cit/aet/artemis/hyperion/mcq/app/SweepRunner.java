@@ -213,7 +213,7 @@ public class SweepRunner {
         return new ApproachContext(manifestOf(request.courseKey()), dependencies.store(), dependencies.snippets(),
                 new ModelCall(generator.client(), generator.model(), properties.generation().temperature(), properties.generation().maxAttempts()),
                 new ModelCall(judge.client(), judge.model(), properties.filter().temperature(), properties.filter().maxAttempts()), properties.retrieval().topK(),
-                properties.retrieval().maxGroundingTokens(), properties.filter().acceptThreshold(), plan.agentic().maxRounds(), selection);
+                properties.retrieval().maxGroundingTokens(), properties.filter().acceptThreshold(), properties.filter().gatingModes(), plan.agentic().maxRounds(), selection);
     }
 
     private PoolBuilder.Settings poolSettings(String generatorKey, String courseKey, ResolvedModel generator, ResolvedModel judge) {

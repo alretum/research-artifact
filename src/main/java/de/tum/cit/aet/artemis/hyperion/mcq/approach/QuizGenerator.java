@@ -1,11 +1,13 @@
 package de.tum.cit.aet.artemis.hyperion.mcq.approach;
 
 import java.util.List;
+import java.util.Set;
 
 import org.springframework.ai.chat.client.ChatClient;
 
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.GenerationRequest;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.CallRecord;
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.FailureMode;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.FilterDecision;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.McqItem;
 import de.tum.cit.aet.artemis.hyperion.mcq.grounding.SnippetSource;
@@ -50,11 +52,13 @@ public interface QuizGenerator {
      * @param topK               snippets retrieved per query
      * @param maxGroundingTokens upper bound on the assembled grounding block
      * @param acceptThreshold    minimum aggregate filter score in [0, 1] for acceptance
+     * @param gatingModes        failure modes whose severity decides acceptance, as configured; fit modes
+     *                           outside this set are still judged and recorded but do not reject
      * @param maxRounds          generation rounds allowed before an incomplete quiz is returned
      * @param selection          selection parameters; {@code null} for approaches that never select
      */
     record ApproachContext(CompetencyManifest manifest, RunStore store, SnippetSource snippets, ModelCall generator, ModelCall judge, int topK, int maxGroundingTokens,
-            double acceptThreshold, int maxRounds, SelectionSettings selection) {
+            double acceptThreshold, Set<FailureMode> gatingModes, int maxRounds, SelectionSettings selection) {
     }
 
     /**

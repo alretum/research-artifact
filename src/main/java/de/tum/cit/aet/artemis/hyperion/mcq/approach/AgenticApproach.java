@@ -1,6 +1,7 @@
 package de.tum.cit.aet.artemis.hyperion.mcq.approach;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Service;
 
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.GenerationRequest;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.CallRecord;
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.FailureMode;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.GroundingContext;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.McqItem;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.Snippet;
@@ -29,11 +31,15 @@ import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyManifest.Competency;
  * <p>
  * Grounding is retrieved once per request across all requested competencies and reused for every round and
  * every filter call. Each question is judged individually at {@link FilterScope#COMBINED}, so general
- * quality and request fit are decided in one call per question. A question whose normalised text duplicates
- * an already accepted one is rejected without a filter call.
+ * quality and request fit are decided in one call per question. Gating spans the configured general modes
+ * plus every {@link FilterScope#REQUEST_FIT} mode, so a question that does not fit the request is rejected
+ * here just as an ill-fitting candidate is rejected at selection in the two-phase approach. A question
+ * whose normalised text duplicates an already accepted one is rejected without a filter call.
  * <p>
- * The round loop ends at {@code maxRounds}, when the quiz is full, or early after any round that adds no
- * accepted question — the inputs do not change between rounds, so a fruitless round is not repeated.
+ * The round loop ends at {@code maxRounds}, when the quiz is full, or early after any judged round that
+ * adds no accepted question — the inputs do not change between rounds, so a fruitless round is not
+ * repeated. A round whose whole batch fails before judging is retried: it is a fresh sample, not a
+ * judged outcome.
  */
 @Service
 public class AgenticApproach implements QuizGenerator {
@@ -59,6 +65,9 @@ public class AgenticApproach implements QuizGenerator {
         McqFilterService.RequestContext fit = new McqFilterService.RequestContext(competencies == null ? request.topic() : competencies, request.difficulty().promptValue(),
                 request.optionalPrompt());
 
+        Set<FailureMode> gating = EnumSet.copyOf(context.gatingModes());
+        gating.addAll(FilterScope.REQUEST_FIT.modes());
+
         List<JudgedQuestion> accepted = new ArrayList<>();
         List<JudgedQuestion> rejected = new ArrayList<>();
         List<CallRecord> calls = new ArrayList<>();
@@ -73,7 +82,7 @@ public class AgenticApproach implements QuizGenerator {
             calls.add(batch.call());
             if (batch.failure() != null) {
                 log.warn("Round {}/{} of request {} yielded no usable questions: {}", round, context.maxRounds(), request.key(), batch.failure());
-                break;
+                continue;
             }
             generated += batch.items().size();
 
@@ -84,8 +93,8 @@ public class AgenticApproach implements QuizGenerator {
                 if (!acceptedTexts.add(normalise(item.questionText()))) {
                     continue;
                 }
-                McqFilterService.Result judged = filter.evaluate(item, grounding, FilterScope.COMBINED, fit, context.acceptThreshold(), null, context.judge().model(),
-                        context.judge().temperature(), context.judge().maxAttempts(), context.judge().client());
+                McqFilterService.Result judged = filter.evaluate(item, grounding, FilterScope.COMBINED, fit, context.acceptThreshold(), gating,
+                        context.judge().model(), context.judge().temperature(), context.judge().maxAttempts(), context.judge().client());
                 calls.add(judged.call());
                 if (!judged.succeeded()) {
                     continue;
