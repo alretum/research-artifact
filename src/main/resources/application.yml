@@ -84,8 +84,12 @@ mcq:
     max-tokens: 1200
     index-path: data/index.json
   retrieval:
-    top-k: 8
-    max-grounding-tokens: 6000
+    # Snippets retrieved per competency. The pool's per-cell retrieval uses the same depth
+    # (mcq.pool retrieval-top-m in a sweep file), so neither approach sees more material than the other.
+    top-k: 12
+    # Must exceed depth x competencies x chunk size, or assembly truncates and the last competencies
+    # of a multi-competency request go unrepresented.
+    max-grounding-tokens: 20000
   generation:
     model: ${LOGOS_MODEL:openai/gpt-oss-120b}
     temperature: 0.7

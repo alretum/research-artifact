@@ -144,6 +144,27 @@ class AgenticApproachTest {
     }
 
     @Test
+    void interleave_takesOneSnippetPerCompetencyInTurn() {
+        List<Snippet> first = List.of(named("a1"), named("a2"), named("a3"));
+        List<Snippet> second = List.of(named("b1"));
+        List<Snippet> third = List.of(named("c1"), named("c2"));
+
+        List<Snippet> merged = AgenticApproach.interleave(List.of(first, second, third));
+
+        assertThat(merged).extracting(Snippet::chunkId).containsExactly("a1", "b1", "c1", "a2", "c2", "a3");
+    }
+
+    @Test
+    void interleave_keepsEachChunkOnce() {
+        List<Snippet> first = List.of(named("shared"), named("a2"));
+        List<Snippet> second = List.of(named("shared"), named("b2"));
+
+        List<Snippet> merged = AgenticApproach.interleave(List.of(first, second));
+
+        assertThat(merged).extracting(Snippet::chunkId).containsExactly("shared", "a2", "b2");
+    }
+
+    @Test
     void generate_rejectsACompetencyTheCourseModelDoesNotDeclare() {
         GenerationRequest request = new GenerationRequest("r1", "EIDI", null, List.of("streams"), null, Language.DE, Set.of(QuestionType.SINGLE_CHOICE), 2, Difficulty.MEDIUM);
 
@@ -157,6 +178,10 @@ class AgenticApproachTest {
     private static CompetencyManifest manifest() {
         return new CompetencyManifest(new Course("EIDI", "EIDI", ""),
                 List.of(new Competency("arrays", "Arrays", "Du kannst Arrays erstellen.", null, Taxonomy.APPLY, false, null, List.of(), List.of(), List.of())));
+    }
+
+    private static Snippet named(String chunkId) {
+        return new Snippet("Deck", "Unit", "Page 1", "Material for " + chunkId, chunkId, SourceRole.LECTURE_DECK, 0.9);
     }
 
     private static Snippet snippet() {

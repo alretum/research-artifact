@@ -124,17 +124,37 @@ public class AgenticApproach implements QuizGenerator {
         if (!request.competencyMode()) {
             return groundingAssembly.assemble(request.topic(), context.snippets().search(request.topic(), context.topK(), request.courseKey()), context.maxGroundingTokens());
         }
-        Map<String, Snippet> merged = new LinkedHashMap<>();
+        List<List<Snippet>> perCompetency = new ArrayList<>();
         for (String key : request.competencyKeys()) {
             Competency competency = Competencies.resolve(request, context.manifest(), key);
-            for (Snippet snippet : context.snippets().search(competency.retrievalQuery(), context.topK(), request.courseKey())) {
-                merged.putIfAbsent(snippet.chunkId(), snippet);
-            }
+            perCompetency.add(context.snippets().search(competency.retrievalQuery(), context.topK(), request.courseKey()));
         }
         String label = String.join(", ", request.competencyKeys());
-        return groundingAssembly.assemble(label, List.copyOf(merged.values()), context.maxGroundingTokens());
+        return groundingAssembly.assemble(label, interleave(perCompetency), context.maxGroundingTokens());
     }
 
+
+    /**
+     * Merges per-competency snippet lists by taking one snippet from each in turn, dropping repeats.
+     * <p>
+     * Assembly truncates in list order once the token budget is reached, so concatenating the lists would
+     * spend the whole budget on the first competencies and leave the last ones unrepresented.
+     *
+     * @param perCompetency one ranked snippet list per requested competency
+     * @return the interleaved snippets, each chunk appearing once
+     */
+    static List<Snippet> interleave(List<List<Snippet>> perCompetency) {
+        Map<String, Snippet> merged = new LinkedHashMap<>();
+        int depth = perCompetency.stream().mapToInt(List::size).max().orElse(0);
+        for (int rank = 0; rank < depth; rank++) {
+            for (List<Snippet> snippets : perCompetency) {
+                if (rank < snippets.size()) {
+                    merged.putIfAbsent(snippets.get(rank).chunkId(), snippets.get(rank));
+                }
+            }
+        }
+        return List.copyOf(merged.values());
+    }
 
     private static String normalise(String text) {
         return text.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").strip();
