@@ -178,7 +178,7 @@ public record SweepPlan(String sweep, String requestsFile, int repetitions, Pool
     }
 
     private static Selection selection(Map<String, Object> node) {
-        return new Selection(integer(node, "max-candidates", 40), decimal(node, "temperature", 0.7), integer(node, "max-attempts", 3), integer(node, "top-up-rounds", 3));
+        return new Selection(integer(node, "max-candidates", 40), decimal(node, "temperature", 1.0), integer(node, "max-attempts", 3), integer(node, "top-up-rounds", 3));
     }
 
     private static Agentic agentic(Map<String, Object> node) {

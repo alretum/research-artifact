@@ -302,8 +302,12 @@ public class SweepExporter {
                     provider: "openai_compatible"
                     model: "<a model no configuration of this sweep used>"
                     base_url: "https://logos.aet.cit.tum.de/v1"
-                    temperature: 0.0
-                    max_tokens: 2000
+                    # A reasoning evaluator spends its completion budget thinking before it answers: at
+                    # 2000 it returns unparseable output on long questions. At temperature 0 a question
+                    # that overruns the budget overruns it identically on every retry, so the run cannot
+                    # recover; judge variation is meant to be measured by runs, not suppressed per call.
+                    temperature: 1.0
+                    max_tokens: 8000
 
                 # Metric names and versions must match the benchmark's registry; an unknown name fails the
                 # run. Names below match the registry as of 2026-09; re-check after a benchmark update.

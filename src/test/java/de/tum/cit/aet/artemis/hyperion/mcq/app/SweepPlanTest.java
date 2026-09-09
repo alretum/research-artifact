@@ -94,6 +94,7 @@ class SweepPlanTest {
         assertThat(plan.pool().languages()).containsExactlyInAnyOrder(Language.values());
         assertThat(plan.pool().questionTypes()).containsExactlyInAnyOrder(QuestionType.SINGLE_CHOICE, QuestionType.MULTIPLE_CHOICE);
         assertThat(plan.selection().maxCandidates()).isEqualTo(40);
+        assertThat(plan.selection().temperature()).isEqualTo(1.0);
         assertThat(plan.configurations().getFirst().selector()).isEqualTo("m");
     }
 

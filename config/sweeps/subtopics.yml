@@ -16,7 +16,7 @@ pool:
   difficulties: [medium]
 selection:
   max-candidates: 40
-  temperature: 0.7
+  temperature: 1.0
   max-attempts: 3
   top-up-rounds: 3
 agentic:

@@ -92,10 +92,15 @@ mcq:
     max-grounding-tokens: 20000
   generation:
     model: ${LOGOS_MODEL:openai/gpt-oss-120b}
-    temperature: 0.7
+    # Sampling at the model's own distribution. Candidates generated for one cell must differ from each
+    # other, so a sharper distribution would make a pool's surplus near-duplicate and worthless.
+    temperature: 1.0
     max-attempts: 3
   filter:
     model: ${LOGOS_MODEL:openai/gpt-oss-120b}
+    # Near-deterministic, because a filter is an instrument: the same question must earn the same verdict
+    # twice. Not zero -- a reasoning model that overruns its budget on one question does so identically on
+    # every retry at zero, so the retry can never recover.
     temperature: 0.2
     max-attempts: 3
     accept-threshold: 0.7
