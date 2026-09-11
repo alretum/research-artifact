@@ -22,8 +22,10 @@ import org.springframework.ai.openai.OpenAiChatOptions;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Difficulty;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.GenerationRequest;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Language;
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.AnswerOption;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.GroundingComposition;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.GroundingContext;
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.McqItem;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.QuestionType;
 import de.tum.cit.aet.artemis.hyperion.mcq.generation.McqGenerationService.Failure;
 import de.tum.cit.aet.artemis.hyperion.mcq.llm.PromptTemplateService;
@@ -328,5 +330,41 @@ class McqGenerationServiceTest {
                   "options": [ { "text": "%s", "correct": %s }, { "text": "%s", "correct": %s },
                                { "text": "%s", "correct": %s }, { "text": "%s", "correct": %s } ] }
                 """.formatted(a, aCorrect, b, bCorrect, c, cCorrect, d, dCorrect);
+    }
+
+    private static McqItem item(AnswerOption... options) {
+        return new McqItem(QuestionType.SINGLE_CHOICE, "Weak duality", "Which bound does weak duality give on the primal optimum?", List.of(options), null,
+                "Weak duality bounds the primal objective.");
+    }
+
+    @Test
+    void defectOf_acceptsAUsableQuestion() {
+        McqItem sound = item(new AnswerOption("An upper bound", true, null, null), new AnswerOption("A lower bound", false, null, null),
+                new AnswerOption("An exact value", false, null, null), new AnswerOption("No bound at all", false, null, null));
+
+        assertThat(McqGenerationService.defectOf(sound)).isEmpty();
+    }
+
+    @Test
+    void defectOf_reportsDuplicateOptions() {
+        McqItem duplicates = item(new AnswerOption("An upper bound", true, null, null), new AnswerOption("an upper bound", false, null, null),
+                new AnswerOption("An exact value", false, null, null), new AnswerOption("No bound at all", false, null, null));
+
+        assertThat(McqGenerationService.defectOf(duplicates)).contains(McqGenerationService.Defect.DUPLICATE_OPTIONS);
+    }
+
+    @Test
+    void defectOf_reportsTheWrongNumberOfCorrectOptions() {
+        McqItem twoCorrect = item(new AnswerOption("An upper bound", true, null, null), new AnswerOption("A tighter bound", true, null, null),
+                new AnswerOption("An exact value", false, null, null), new AnswerOption("No bound at all", false, null, null));
+
+        assertThat(McqGenerationService.defectOf(twoCorrect)).contains(McqGenerationService.Defect.CORRECT_COUNT);
+    }
+
+    @Test
+    void defectOf_reportsTheWrongNumberOfOptions() {
+        McqItem tooFew = item(new AnswerOption("An upper bound", true, null, null), new AnswerOption("A lower bound", false, null, null));
+
+        assertThat(McqGenerationService.defectOf(tooFew)).contains(McqGenerationService.Defect.OPTION_COUNT);
     }
 }

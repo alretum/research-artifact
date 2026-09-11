@@ -1,11 +1,13 @@
 package de.tum.cit.aet.artemis.hyperion.mcq.generation;
 
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -187,8 +189,12 @@ public class McqGenerationService {
         }
 
         McqItem item = toItem(generated);
-        return validate(item) ? new Result(item, user, call, null)
-                : new Result(null, user, call.withFailureCategory(Failure.VALIDATION_VIOLATION.name()), Failure.VALIDATION_VIOLATION);
+        Optional<Defect> defect = defectOf(item);
+        if (defect.isEmpty()) {
+            return new Result(item, user, call, null);
+        }
+        log.debug("Discarding generated question: {}", defect.orElseThrow());
+        return new Result(null, user, call.withFailureCategory(Failure.VALIDATION_VIOLATION.name()), Failure.VALIDATION_VIOLATION);
     }
 
     /**
@@ -283,17 +289,23 @@ public class McqGenerationService {
 
         List<GeneratedQuestion> questions = new ArrayList<>();
         Set<QuestionType> allowedTypes = new LinkedHashSet<>(request.questionTypes());
-        int invalid = 0;
+        Map<Defect, Integer> defects = new EnumMap<>(Defect.class);
         for (GeneratedQuizItem generated : quiz.questions()) {
             McqItem item = toQuizItem(generated);
-            if (item == null || !allowedTypes.contains(item.type()) || !validate(item)) {
-                invalid++;
+            Defect defect = defectOfQuizItem(item, allowedTypes);
+            if (defect != null) {
+                defects.merge(defect, 1, Integer::sum);
                 continue;
             }
             questions.add(new GeneratedQuestion(item, generated.competency()));
         }
+        int invalid = defects.values().stream().mapToInt(Integer::intValue).sum();
         if (questions.isEmpty()) {
+            log.warn("Discarded all {} generated questions: {}", quiz.questions().size(), defects);
             return new QuizResult(List.of(), invalid, user, call.withFailureCategory(Failure.VALIDATION_VIOLATION.name()), Failure.VALIDATION_VIOLATION);
+        }
+        if (!defects.isEmpty()) {
+            log.debug("Discarded {} of {} generated questions: {}", invalid, quiz.questions().size(), defects);
         }
         return new QuizResult(questions, invalid, user, call, null);
     }
@@ -318,36 +330,96 @@ public class McqGenerationService {
         return new McqItem(QuestionType.SINGLE_CHOICE, strip(generated.title()), strip(generated.questionText()), options, null, strip(generated.explanation()));
     }
 
-    private static boolean validate(McqItem item) {
+    /**
+     * Why a generated question was discarded.
+     * <p>
+     * Reported per generation call so a rise in discards can be attributed to one rule rather than to
+     * validation as a whole.
+     */
+    enum Defect {
+        /** The model's question could not be mapped onto an item at all. */
+        UNMAPPABLE,
+        /** The question carries a type the request did not ask for. */
+        TYPE_NOT_REQUESTED,
+        /** The title or the question text is empty. */
+        BLANK_TEXT,
+        /** The question names a tableau, figure or program whose data it does not contain. */
+        DANGLING_REFERENCE,
+        /** The question carries the wrong number of answer options. */
+        OPTION_COUNT,
+        /** An answer option has no text. */
+        BLANK_OPTION,
+        /** Two answer options have the same text. */
+        DUPLICATE_OPTIONS,
+        /** An option uses a banned construction such as "all of the above". */
+        BANNED_CONSTRUCTION,
+        /** One option's text contains another's, so the pair is not independent. */
+        CONTAINED_OPTION,
+        /** The number of options marked correct is wrong for the question type. */
+        CORRECT_COUNT,
+        /** The correct option is conspicuously longer than the distractors. */
+        CONSPICUOUS_LENGTH
+    }
+
+    /**
+     * Validates a question generated as part of a whole quiz, including its type against the request.
+     *
+     * @param item         the mapped question, {@code null} when the model's output could not be mapped
+     * @param allowedTypes question types the request asked for
+     * @return the defect, or {@code null} when the question is usable
+     */
+    private static Defect defectOfQuizItem(McqItem item, Set<QuestionType> allowedTypes) {
+        if (item == null) {
+            return Defect.UNMAPPABLE;
+        }
+        if (!allowedTypes.contains(item.type())) {
+            return Defect.TYPE_NOT_REQUESTED;
+        }
+        return defectOf(item).orElse(null);
+    }
+
+    /**
+     * Validates a question against the rules every generated item must satisfy.
+     *
+     * @param item the question to check
+     * @return the first defect found, empty when the question is usable
+     */
+    static Optional<Defect> defectOf(McqItem item) {
         if (isBlank(item.title()) || isBlank(item.questionText())) {
-            return false;
+            return Optional.of(Defect.BLANK_TEXT);
         }
         if (DANGLING_REFERENCE.matcher(item.questionText()).find() && !item.questionText().contains("\n")) {
-            return false;
+            return Optional.of(Defect.DANGLING_REFERENCE);
         }
         int requiredOptions = item.type() == QuestionType.TRUE_FALSE ? TRUE_FALSE_OPTION_COUNT : REQUIRED_OPTION_COUNT;
         if (item.options().size() != requiredOptions) {
-            return false;
+            return Optional.of(Defect.OPTION_COUNT);
         }
         if (item.options().stream().anyMatch(option -> isBlank(option.text()))) {
-            return false;
+            return Optional.of(Defect.BLANK_OPTION);
         }
         long distinct = item.options().stream().map(option -> option.text().toLowerCase(Locale.ROOT)).distinct().count();
         if (distinct != requiredOptions) {
-            return false;
+            return Optional.of(Defect.DUPLICATE_OPTIONS);
         }
         if (item.options().stream().anyMatch(option -> BANNED_CONSTRUCTION.matcher(option.text()).find())) {
-            return false;
+            return Optional.of(Defect.BANNED_CONSTRUCTION);
         }
         if (hasContainedOption(item.options())) {
-            return false;
+            return Optional.of(Defect.CONTAINED_OPTION);
         }
         long correct = item.options().stream().filter(AnswerOption::correct).count();
         boolean correctCountValid = switch (item.type()) {
             case SINGLE_CHOICE, TRUE_FALSE -> correct == 1;
             case MULTIPLE_CHOICE -> correct >= 1 && correct <= 3;
         };
-        return correctCountValid && !correctOptionIsConspicuouslyLong(item.options());
+        if (!correctCountValid) {
+            return Optional.of(Defect.CORRECT_COUNT);
+        }
+        if (correctOptionIsConspicuouslyLong(item.options())) {
+            return Optional.of(Defect.CONSPICUOUS_LENGTH);
+        }
+        return Optional.empty();
     }
 
     /**
