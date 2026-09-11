@@ -249,4 +249,32 @@ class RunStorePoolTest {
 
         assertThat(store.quizzesOfApproach("agentic")).extracting(RunStore.StoredQuiz::quizId).containsExactly("q1");
     }
+
+    @Test
+    void quizIsFinal_acceptsAQuizHoldingQuestions() {
+        store.saveQuiz(new RunStore.StoredQuiz("q1", "s1", "agentic|m|m", "EIDI", "r1", 1, false, "[{\"title\":\"t\"}]", "[]", "[]", 0));
+
+        assertThat(store.quizIsFinal("s1", "agentic|m|m", "r1", 1)).isTrue();
+    }
+
+    @Test
+    void quizIsFinal_acceptsAnEmptyQuizWhoseCallsReachedTheModel() {
+        String calls = "[{\"failureCategory\":\"MALFORMED_JSON\"},{\"failureCategory\":null}]";
+        store.saveQuiz(new RunStore.StoredQuiz("q1", "s1", "agentic|m|m", "EIDI", "r1", 1, false, "[]", "[]", calls, 0));
+
+        assertThat(store.quizIsFinal("s1", "agentic|m|m", "r1", 1)).isTrue();
+    }
+
+    @Test
+    void quizIsFinal_rejectsAnEmptyQuizWhoseCallsFailedOnTransport() {
+        String calls = "[{\"failureCategory\":\"MALFORMED_JSON\"},{\"failureCategory\":\"TRANSPORT\"}]";
+        store.saveQuiz(new RunStore.StoredQuiz("q1", "s1", "agentic|m|m", "EIDI", "r1", 1, false, "[]", "[]", calls, 0));
+
+        assertThat(store.quizIsFinal("s1", "agentic|m|m", "r1", 1)).isFalse();
+    }
+
+    @Test
+    void quizIsFinal_rejectsACellWithNoStoredQuiz() {
+        assertThat(store.quizIsFinal("s1", "agentic|m|m", "r1", 1)).isFalse();
+    }
 }

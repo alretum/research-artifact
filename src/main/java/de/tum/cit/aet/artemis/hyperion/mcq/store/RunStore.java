@@ -537,13 +537,26 @@ public class RunStore implements AutoCloseable {
     }
 
     /**
-     * Whether a quiz for this cell of the sweep already exists, so a resumed sweep skips it.
+     * Whether a stored quiz counts as a final result, so a resumed sweep skips it.
+     * <p>
+     * A quiz holding at least one question is final. A quiz holding none is final only when no recorded
+     * call failed on a timeout, a transport error or throttling: a model that produced nothing usable is a
+     * result, whereas a run that never reached the model is not, so a resumed sweep assembles that one again.
      *
-     * @return {@code true} when the quiz is already stored
+     * @param runId           sweep the quiz belongs to
+     * @param configurationId configuration that produced the quiz
+     * @param requestKey      request the quiz answers
+     * @param repetition      repetition index within the sweep
+     * @return {@code true} when a final quiz is stored
      */
-    public synchronized boolean quizExists(String runId, String configurationId, String requestKey, int repetition) {
-        return queryString("SELECT quiz_id FROM quiz WHERE run_id = ? AND configuration_id = ? AND request_key = ? AND repetition = ?", runId, configurationId, requestKey,
-                repetition).isPresent();
+    public synchronized boolean quizIsFinal(String runId, String configurationId, String requestKey, int repetition) {
+        return queryString("""
+                SELECT quiz_id FROM quiz AS q
+                WHERE q.run_id = ? AND q.configuration_id = ? AND q.request_key = ? AND q.repetition = ?
+                  AND (json_array_length(q.quiz_json) > 0
+                       OR NOT EXISTS (SELECT 1 FROM json_each(q.calls_json)
+                                      WHERE json_extract(json_each.value, '$.failureCategory') IN ('TIMEOUT', 'TRANSPORT', 'RATE_LIMIT')))""",
+                runId, configurationId, requestKey, repetition).isPresent();
     }
 
     /**

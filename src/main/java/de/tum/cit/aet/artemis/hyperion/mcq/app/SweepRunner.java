@@ -130,7 +130,7 @@ public class SweepRunner {
             for (GenerationRequest request : requests) {
                 for (int repetition = 1; repetition <= plan.repetitions(); repetition++) {
                     position++;
-                    if (dependencies.store().quizExists(plan.sweep(), configuration.configurationId(), request.key(), repetition)) {
+                    if (dependencies.store().quizIsFinal(plan.sweep(), configuration.configurationId(), request.key(), repetition)) {
                         continue;
                     }
                     ApproachContext context = context(configuration, request);
