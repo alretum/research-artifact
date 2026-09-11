@@ -321,7 +321,9 @@ public class SweepExporter {
                   - {name: "absence_of_cueing", version: "1.0", evaluators: ["independent_judge"], enabled: true}
                   - {name: "grammatical_correctness", version: "2.1", evaluators: ["independent_judge"], enabled: true}
                   - {name: "difficulty", version: "1.2", evaluators: ["independent_judge"], enabled: true}
-                  - {name: "coverage", version: "1.6", evaluators: ["independent_judge"], enabled: true}
+                  # coverage reads the source material in its first phase and fails without it. Enable it
+                  # only when source_directory below points at the real material.
+                  - {name: "coverage", version: "1.6", evaluators: ["independent_judge"], enabled: false}
                   - {name: "homogeneous_options", version: "2.0", evaluators: ["independent_judge"], enabled: true}
                   - {name: "cross_item_redundancy", version: "1.0", evaluators: ["independent_judge"], enabled: false}
                   - {name: "difficulty_spread", version: "1.0", evaluators: ["independent_judge"], enabled: false}
