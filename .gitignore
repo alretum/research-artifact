@@ -2,6 +2,14 @@
 # ~495 MB, mostly MP4 recordings. Keep out of git entirely; document provenance in
 # corpus/manifest.yml instead, and describe how to obtain the material in README.md.
 corpus/
+# Lecture decks materialised from paper-al-quiz-generation/slides by build-competency-maps.py,
+# the competency maps derived from them, and the request files naming competencies by key: all quote
+# TUM course content. Rebuild with build-competency-maps.py against a paper-al-quiz-generation checkout.
+corpus-paper2/
+config/competency-mapping.yml
+config/competencies/
+config/requests/paper2-*.yml
+config/requests/smoke-*.yml
 
 # Run outputs: JSONL logs, SQLite pools, vector indexes
 data/

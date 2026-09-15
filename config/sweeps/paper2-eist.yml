@@ -1,0 +1,43 @@
+# Paper 2, EIST arm. NOT RUNNABLE YET -- two things are missing upstream, and neither is a setting here:
+#
+#   1. slides/EIST/ in paper-al-quiz-generation holds no decks (only .gitkeep). Once it does, add the
+#      EIST section of config/competency-mapping.yml (a folder name per deck, plus query and documents
+#      per competency) and rerun build-competency-maps.py. The script fails loudly on any deck that has
+#      no folder name, so an incomplete mapping cannot pass silently.
+#   2. paper-generation/experiment/topics/EIST.json declares `topics: []` deliberately, so the upstream
+#      build emits no EIST requests and there is nothing to translate into config/requests/paper2-eist.yml.
+#      Adding topics changes the design's cardinality; the upstream comment asks for the power analysis
+#      to be revisited first.
+#
+# config/competencies/EIST.yml already generates and loads (18 competencies, no queries, no links), so
+# once 1 and 2 are done this file needs no edit beyond confirming the pool dimensions.
+#
+#   java -jar run.jar --experiment=config/sweeps/paper2-eist.yml --as=eist \
+#     --mcq.corpus-path=corpus-paper2/EIST \
+#     --mcq.chunking.index-path=data/index-eist.json \
+#     --mcq.competency-manifest=config/competencies/EIST.yml
+sweep: paper2-eist
+requests-file: config/requests/paper2-eist.yml
+repetitions: 1
+pool:
+  items-per-cell: 20
+  generation-batch-size: 8
+  retrieval-top-m: 12
+  languages: [en]
+  question-types: [single-choice, multiple-choice]
+  difficulties: [medium]
+selection:
+  max-candidates: 40
+  temperature: 1.0
+  max-attempts: 3
+agentic:
+  max-rounds: 5
+configurations:
+  - id: agentic-local
+    approach: agentic
+    generator: local
+    judge: local
+  - id: two-phase-local-local
+    approach: two-phase
+    generator: local
+    judge: local

@@ -1,0 +1,22 @@
+# Throwaway smoke sweep: one configuration, one request, one repetition.
+sweep: smoke-eidi
+requests-file: config/requests/smoke-eidi.yml
+repetitions: 1
+pool:
+  items-per-cell: 4
+  generation-batch-size: 4
+  retrieval-top-m: 12
+  languages: [de]
+  question-types: [single-choice]
+  difficulties: [medium]
+selection:
+  max-candidates: 8
+  temperature: 1.0
+  max-attempts: 2
+agentic:
+  max-rounds: 2
+configurations:
+  - id: agentic-local
+    approach: agentic
+    generator: local
+    judge: local

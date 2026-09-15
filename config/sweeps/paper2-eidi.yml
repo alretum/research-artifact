@@ -1,0 +1,34 @@
+# Paper 2, EIDI arm. One sweep per course, because the embedding index is not scoped by course key:
+# each run must point at its own corpus root and index path.
+#
+#   java -jar run.jar --experiment=config/sweeps/paper2-eidi.yml --as=eidi \
+#     --mcq.corpus-path=corpus-paper2/EIDI \
+#     --mcq.chunking.index-path=data/index-eidi.json \
+#     --mcq.competency-manifest=config/competencies/EIDI.yml
+#
+# Swap requests-file for the -per-competency variant to ask one competency per quiz.
+sweep: paper2-eidi
+requests-file: config/requests/paper2-eidi.yml
+repetitions: 1
+pool:
+  items-per-cell: 20
+  generation-batch-size: 8
+  retrieval-top-m: 12
+  languages: [de]
+  question-types: [single-choice, multiple-choice]
+  difficulties: [medium]
+selection:
+  max-candidates: 40
+  temperature: 1.0
+  max-attempts: 3
+agentic:
+  max-rounds: 5
+configurations:
+  - id: agentic-local
+    approach: agentic
+    generator: local
+    judge: local
+  - id: two-phase-local-local
+    approach: two-phase
+    generator: local
+    judge: local
