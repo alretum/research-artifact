@@ -5,6 +5,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -280,7 +281,8 @@ public class BenchmarkExporter {
         String instructionsFile = quizId + ".json";
         writeInstructions(instructionsDirectory.resolve(instructionsFile), items, questions, language);
 
-        BenchmarkQuiz quiz = new BenchmarkQuiz(quizId, key + " (" + conditionLabel + ")", sourceMaterial(items), instructionsFile, metadata, questions);
+        BenchmarkQuiz quiz = new BenchmarkQuiz(quizId, key + " (" + conditionLabel + ")", sourceMaterial(items), instructionsFile, metadata, questions,
+                Instant.now().toString());
         Path file = quizzes.resolve(quizId + ".json");
         try {
             Files.writeString(file, mapper.writeValueAsString(quiz), StandardCharsets.UTF_8);

@@ -48,7 +48,7 @@ class SweepExporterTest {
         store = new RunStore(directory.resolve("run.db"));
         store.registerRun("sweep1", "sweep", "manifest");
         store.saveQuiz(new StoredQuiz("sweep1-agentic-r1", "sweep1", "agentic|local|local", "EIDI", "eidi-r1", 1, true,
-                mapper.writeValueAsString(List.of(judged(singleChoice()), judged(multipleChoice()))), "[]", "[]", 0));
+                mapper.writeValueAsString(List.of(judged(singleChoice()), judged(multipleChoice()))), "[]", "[]", 0, "2026-01-01T00:00:00Z"));
     }
 
     @AfterEach
@@ -88,15 +88,58 @@ class SweepExporterTest {
             Map<String, Object> metadata = (Map<String, Object>) question.get("metadata");
             assertThat(metadata.get("domain")).isEqualTo("java");
             assertThat(metadata.get("language")).isEqualTo("de");
-            assertThat(String.valueOf(metadata.get("learning_objective"))).contains("Arrays").contains("Du kannst Arrays erstellen.");
+            assertThat(metadata.get("learning_objective")).isEqualTo("Arrays — Du kannst Arrays erstellen.");
             assertThat(metadata.get("bloom_intended")).isEqualTo("APPLY");
         }
     }
 
     @Test
+    void export_flattensAMultiLineObjectiveIntoOneLine() throws IOException {
+        Map<String, CompetencyManifest> manifests = Map.of("EIDI", new CompetencyManifest(new Course("EIDI", "EIDI", ""),
+                List.of(new Competency("arrays", "Arrays", "- Du kannst Arrays erstellen.\n- Du kannst auf Elemente zugreifen.", null, Taxonomy.APPLY, false, null, List.of(),
+                        List.of(), List.of()))));
+
+        exporter.export(store, "sweep1", List.of(request()), manifests, directory.resolve("out"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> metadata = (Map<String, Object>) questions(readQuiz()).getFirst().get("metadata");
+        assertThat(metadata.get("learning_objective")).isEqualTo("Arrays — Du kannst Arrays erstellen. Du kannst auf Elemente zugreifen.");
+    }
+
+    @Test
+    void export_carriesTheStoredCreationTime() throws IOException {
+        exporter.export(store, "sweep1", List.of(request()), manifests(), directory.resolve("out"));
+
+        assertThat(readQuiz().get("created_at")).isEqualTo("2026-01-01T00:00:00Z");
+    }
+
+    @Test
+    void export_declaresAQuizShorterThanItsRequest() throws IOException {
+        store.saveQuiz(new StoredQuiz("sweep1-short", "sweep1", "agentic|local|local", "EIDI", "eidi-r1", 2, false,
+                mapper.writeValueAsString(List.of(judged(singleChoice()))), "[]", "[]", 0, "2026-01-01T00:00:00Z"));
+
+        exporter.export(store, "sweep1", List.of(request()), manifests(), directory.resolve("out"));
+
+        Map<String, Object> quiz = mapper.readValue(Files.readString(directory.resolve("out/quizzes/sweep1-short.json")), new TypeReference<Map<String, Object>>() {
+        });
+        @SuppressWarnings("unchecked")
+        Map<String, Object> metadata = (Map<String, Object>) quiz.get("metadata");
+        assertThat(metadata.get("pool_underflow")).isEqualTo(true);
+    }
+
+    @Test
+    void export_leavesACompleteQuizUndeclared() throws IOException {
+        exporter.export(store, "sweep1", List.of(request()), manifests(), directory.resolve("out"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> metadata = (Map<String, Object>) readQuiz().get("metadata");
+        assertThat(metadata).doesNotContainKey("pool_underflow");
+    }
+
+    @Test
     void export_stampsEachQuestionWithItsOwnCompetencysObjectiveAndBloomLevel() throws IOException {
         store.saveQuiz(new StoredQuiz("sweep1-two-competencies", "sweep1", "agentic|local|local", "EIDI", "eidi-r2", 1, true,
-                mapper.writeValueAsString(List.of(judged(singleChoice(), "arrays"), judged(multipleChoice(), "streams"))), "[]", "[]", 0));
+                mapper.writeValueAsString(List.of(judged(singleChoice(), "arrays"), judged(multipleChoice(), "streams"))), "[]", "[]", 0, "2026-01-01T00:00:00Z"));
 
         exporter.export(store, "sweep1", List.of(request(), twoCompetencyRequest()), twoCompetencyManifests(), directory.resolve("out"));
 

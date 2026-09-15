@@ -120,7 +120,8 @@ class SweepCostReporterTest {
         store.registerRun("s1", "sweep", "m");
         List<CallRecord> mixed = List.of(call("cloud-model", "generation", 1000, 200), call("cloud-model", "generation", 900, 150),
                 call("cloud-model", "filter", 400, 50), call("cloud-model", "selection", 5000, 100));
-        store.saveQuiz(new StoredQuiz("q1", "s1", "two-phase|local|cloud|cloud", "EIDI", "r1", 1, true, "[{},{},{}]", "[]", mapper.writeValueAsString(mixed), 12));
+        store.saveQuiz(new StoredQuiz("q1", "s1", "two-phase|local|cloud|cloud", "EIDI", "r1", 1, true, "[{},{},{}]", "[]", mapper.writeValueAsString(mixed), 12,
+                "2026-01-01T00:00:00Z"));
 
         SweepCostReporter.Report report = reporter.report(store, plan(), Map.of("cloud", "cloud-model", "local", "local-model"), pricing);
 
@@ -143,7 +144,7 @@ class SweepCostReporterTest {
     }
 
     private void saveQuiz(String configurationId, String quizId, List<CallRecord> calls) throws IOException {
-        store.saveQuiz(new StoredQuiz(quizId, "s1", configurationId, "EIDI", "r1", 1, true, "[]", "[]", mapper.writeValueAsString(calls), 0));
+        store.saveQuiz(new StoredQuiz(quizId, "s1", configurationId, "EIDI", "r1", 1, true, "[]", "[]", mapper.writeValueAsString(calls), 0, "2026-01-01T00:00:00Z"));
     }
 
     private void seedPoolItem(List<CallRecord> calls) throws IOException {

@@ -230,7 +230,7 @@ class RunStorePoolTest {
 
     @Test
     void switchTo_movesTheStoreBetweenDatabases() {
-        store.saveQuiz(new RunStore.StoredQuiz("q1", "s1", "agentic|m|m", "EIDI", "r1", 1, true, "[]", "[]", "[]", 0));
+        store.saveQuiz(new RunStore.StoredQuiz("q1", "s1", "agentic|m|m", "EIDI", "r1", 1, true, "[]", "[]", "[]", 0, "2026-01-01T00:00:00Z"));
 
         store.switchTo(directory.resolve("other.db"));
 
@@ -244,15 +244,15 @@ class RunStorePoolTest {
 
     @Test
     void quizzesOfApproach_returnsOnlyThatApproach() {
-        store.saveQuiz(new RunStore.StoredQuiz("q1", "s1", "agentic|cloud|cloud", "EIDI", "r1", 1, true, "[]", "[]", "[]", 0));
-        store.saveQuiz(new RunStore.StoredQuiz("q2", "s1", "two-phase|local|cloud", "EIDI", "r1", 1, true, "[]", "[]", "[]", 0));
+        store.saveQuiz(new RunStore.StoredQuiz("q1", "s1", "agentic|cloud|cloud", "EIDI", "r1", 1, true, "[]", "[]", "[]", 0, "2026-01-01T00:00:00Z"));
+        store.saveQuiz(new RunStore.StoredQuiz("q2", "s1", "two-phase|local|cloud", "EIDI", "r1", 1, true, "[]", "[]", "[]", 0, "2026-01-01T00:00:00Z"));
 
         assertThat(store.quizzesOfApproach("agentic")).extracting(RunStore.StoredQuiz::quizId).containsExactly("q1");
     }
 
     @Test
     void quizIsFinal_acceptsAQuizHoldingQuestions() {
-        store.saveQuiz(new RunStore.StoredQuiz("q1", "s1", "agentic|m|m", "EIDI", "r1", 1, false, "[{\"title\":\"t\"}]", "[]", "[]", 0));
+        store.saveQuiz(new RunStore.StoredQuiz("q1", "s1", "agentic|m|m", "EIDI", "r1", 1, false, "[{\"title\":\"t\"}]", "[]", "[]", 0, "2026-01-01T00:00:00Z"));
 
         assertThat(store.quizIsFinal("s1", "agentic|m|m", "r1", 1)).isTrue();
     }
@@ -260,7 +260,7 @@ class RunStorePoolTest {
     @Test
     void quizIsFinal_acceptsAnEmptyQuizWhoseCallsReachedTheModel() {
         String calls = "[{\"failureCategory\":\"MALFORMED_JSON\"},{\"failureCategory\":null}]";
-        store.saveQuiz(new RunStore.StoredQuiz("q1", "s1", "agentic|m|m", "EIDI", "r1", 1, false, "[]", "[]", calls, 0));
+        store.saveQuiz(new RunStore.StoredQuiz("q1", "s1", "agentic|m|m", "EIDI", "r1", 1, false, "[]", "[]", calls, 0, "2026-01-01T00:00:00Z"));
 
         assertThat(store.quizIsFinal("s1", "agentic|m|m", "r1", 1)).isTrue();
     }
@@ -268,7 +268,7 @@ class RunStorePoolTest {
     @Test
     void quizIsFinal_rejectsAnEmptyQuizWhoseCallsFailedOnTransport() {
         String calls = "[{\"failureCategory\":\"MALFORMED_JSON\"},{\"failureCategory\":\"TRANSPORT\"}]";
-        store.saveQuiz(new RunStore.StoredQuiz("q1", "s1", "agentic|m|m", "EIDI", "r1", 1, false, "[]", "[]", calls, 0));
+        store.saveQuiz(new RunStore.StoredQuiz("q1", "s1", "agentic|m|m", "EIDI", "r1", 1, false, "[]", "[]", calls, 0, "2026-01-01T00:00:00Z"));
 
         assertThat(store.quizIsFinal("s1", "agentic|m|m", "r1", 1)).isFalse();
     }

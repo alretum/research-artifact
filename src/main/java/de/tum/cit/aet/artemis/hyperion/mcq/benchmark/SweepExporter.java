@@ -12,6 +12,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.slf4j.Logger;
@@ -115,7 +116,7 @@ public class SweepExporter {
             }
 
             BenchmarkQuiz quiz = new BenchmarkQuiz(stored.quizId(), title(request), sourceMaterial(request), request.key() + ".json",
-                    Map.of("learning_objectives", objectives(request, manifests)), publicQuestions);
+                    quizMetadata(request, manifests, stored), publicQuestions, stored.createdAt());
             Path file = quizzes.resolve(stored.quizId() + ".json");
             writeJson(file, quiz);
             writeJson(sidecars.resolve(stored.quizId() + ".key.json"),
@@ -127,6 +128,26 @@ public class SweepExporter {
         writeMaterialManifest(directory, requests, manifests);
         log.info("Exported {} quizzes of sweep {} to {}", written.size(), sweepId, directory);
         return List.copyOf(written);
+    }
+
+    /**
+     * Quiz-level metadata for the benchmark.
+     * <p>
+     * A quiz holding fewer questions than its request asked for must carry {@code pool_underflow}, because
+     * the benchmark rejects an undeclared short quiz: it cannot be told apart from a truncation bug. The
+     * private sidecar carries {@code complete} for the same quiz, which is where the distinction between a
+     * short pool and a rejected candidate is recoverable.
+     *
+     * @param stored the assembled quiz, whose completeness decides {@code pool_underflow}
+     * @return the metadata map, ordered
+     */
+    private static Map<String, Object> quizMetadata(GenerationRequest request, Map<String, CompetencyManifest> manifests, StoredQuiz stored) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("learning_objectives", objectives(request, manifests));
+        if (!stored.complete()) {
+            metadata.put("pool_underflow", true);
+        }
+        return metadata;
     }
 
     /**
@@ -212,9 +233,24 @@ public class SweepExporter {
         return manifest == null ? Optional.empty() : manifest.byKey(competencyKey);
     }
 
+    /**
+     * The reference objective of one competency: its title followed by every declared learning objective
+     * on a single line.
+     * <p>
+     * The separator is an em dash surrounded by single spaces and the objectives are joined by single
+     * spaces. Neither may change: the benchmark's objective-alignment criterion scores each question
+     * against this exact string.
+     *
+     * @param competency the competency a question assesses
+     * @return the title alone when no objectives are declared, otherwise {@code title — objectives}
+     */
     private static String objective(Competency competency) {
-        String description = competency.description() == null || competency.description().isBlank() ? "" : ": " + competency.description();
-        return competency.title() + description;
+        if (competency.description() == null || competency.description().isBlank()) {
+            return competency.title();
+        }
+        String objectives = competency.description().lines().map(String::strip).filter(line -> !line.isEmpty())
+                .map(line -> line.startsWith("- ") ? line.substring(2) : line).collect(Collectors.joining(" "));
+        return competency.title() + " — " + objectives;
     }
 
     private Map<String, Object> sidecarQuestion(JudgedQuestion question, StoredQuiz stored) {
@@ -250,8 +286,7 @@ public class SweepExporter {
         for (String key : request.competencyKeys()) {
             Competency competency = manifest.byKey(key)
                     .orElseThrow(() -> new IllegalArgumentException("Request '" + request.key() + "' names competency '" + key + "', which the course model does not declare"));
-            String description = competency.description() == null || competency.description().isBlank() ? "" : ": " + competency.description();
-            objectives.add(competency.title() + description);
+            objectives.add(objective(competency));
         }
         return objectives;
     }
@@ -259,7 +294,7 @@ public class SweepExporter {
     private static String bloom(GenerationRequest request, Map<String, CompetencyManifest> manifests) {
         CompetencyManifest manifest = manifests.get(request.courseKey());
         return request.competencyKeys().stream().map(key -> manifest.byKey(key).orElseThrow().taxonomy().name()).distinct().sorted()
-                .collect(java.util.stream.Collectors.joining(","));
+                .collect(Collectors.joining(","));
     }
 
     private static String type(McqItem item) {

@@ -3,6 +3,7 @@ package de.tum.cit.aet.artemis.hyperion.mcq.app;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -141,7 +142,7 @@ public class SweepRunner {
                     String quizId = plan.sweep() + "-" + configuration.id() + "-" + request.key() + "-r" + repetition;
                     dependencies.store().saveQuiz(new StoredQuiz(quizId, plan.sweep(), configuration.configurationId(), request.courseKey(), request.key(), repetition,
                             quiz.complete(), mapper.writeValueAsString(quiz.accepted()), mapper.writeValueAsString(quiz.rejected()), mapper.writeValueAsString(quiz.calls()),
-                            quiz.candidateCount()));
+                            quiz.candidateCount(), Instant.now().toString()));
                     assembled++;
                     log.info("Assembled {} [{}/{}] ({} of {} questions{}{})", quizId, position, total, quiz.accepted().size(), request.numberOfQuestions(),
                             quiz.candidateCount() == 0 ? "" : " from " + quiz.candidateCount() + " candidates", quiz.complete() ? "" : ", INCOMPLETE");

@@ -16,7 +16,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record BenchmarkQuiz(@JsonProperty("quiz_id") String quizId, @JsonProperty("title") String title, @JsonProperty("source_material") String sourceMaterial,
-        @JsonProperty("instructions") String instructions, @JsonProperty("metadata") Map<String, Object> metadata, @JsonProperty("questions") List<BenchmarkQuestion> questions) {
+        @JsonProperty("instructions") String instructions, @JsonProperty("metadata") Map<String, Object> metadata, @JsonProperty("questions") List<BenchmarkQuestion> questions,
+        @JsonProperty("created_at") String createdAt) {
 
     /**
      * One question.
