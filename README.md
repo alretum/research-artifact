@@ -181,6 +181,82 @@ exercise, lecture deck). Extraction is deliberately unrepaired; per-document dam
 folder names; the declared Bloom taxonomy and description are exported as `bloom_intended` and
 `learning_objective` for the benchmark.
 
+### Competency catalogue
+
+`mcq.competency-manifest` names **one manifest file, for one course**. It is the only place topics come
+from, so a course without one cannot be generated for. Several courses mean several files and one run each,
+overriding `mcq.corpus-path`, `mcq.chunking.index-path` and `mcq.competency-manifest` per run: the
+embedding index is not scoped by course key, so a single index over two courses lets either course's
+material ground the other's questions. A directory of catalogues does not work — see
+[`EXPERIMENT.md`](./EXPERIMENT.md) §Scaling up. A minimal entry:
+
+```yaml
+  - key: lp-modeling                      # stable id; sweep requests name competencies by this
+    title: Linear Programming Modeling    # shown to the generator, and exported as `competency`
+    knowledgeArea: Linear Optimization
+    taxonomy: APPLY                       # exported as `bloom_intended`; the benchmark scores against it
+    query: linear program, decision variables, objective function, constraints   # optional; see below
+    description: |-                       # exported as `learning_objective`, and drives retrieval
+      - You translate a verbal decision problem into a linear program.
+      - You identify decision variables, objective function and constraints.
+    lectureUnits:
+      - document: 01 Linear Programming - Modeling/2 Linear programming.pdf
+    exercises:
+      - document: 01 Linear Programming - Modeling/Tutorial 1 Exercises.pdf
+```
+
+Five things are easy to get wrong:
+
+- **`description` is the retrieval query unless `query` overrides it, not decoration.** Grounding is
+  embedding similarity over the whole course index — declared documents do not scope it — so the wording of
+  the objectives decides which slides a competency's questions are built from. A vague description
+  retrieves vague material.
+- **`query` overrides that** when the objectives are a poor embedding target, and leaves `description` free
+  to stay the wording the benchmark scores against. Use the terms the slides themselves use: a query built
+  from standard subject vocabulary retrieves nothing when the course does not write it that way.
+- **`document:` paths must match extraction ids exactly**: relative to the course folder, including the
+  lecture directory and the `.pdf` suffix, as they appear in the `documentId` column of
+  `data/extraction-report.csv`. Ingest the corpus first, then write the catalogue against that column.
+- **`taxonomy` is scored downstream.** The benchmark's `cognitive_level` metric compares the judged level
+  of each question against this value, scoring 0 when a question sits below it. A competency labelled
+  `ANALYZE` whose questions are recall questions scores zero however good they are.
+- **Directory and file names are part of the embedded text.** Each chunk is embedded as
+  `Lecture: <first directory below the corpus root>, Unit: <filename>, Pages <range>` followed by the page
+  text, so a corpus of opaque filenames retrieves worse than the same PDFs in directories named after
+  their topic. Rename before indexing, not after: the index cache is keyed on the chunk texts.
+
+Declared documents are not used for retrieval, but they are used twice: the incremental pool build
+regenerates a cell when its competency's retrieval draws on a changed document, and
+`--export-experiment` writes them into `material-manifest.yaml`, which tells the benchmark which files to
+place in each material folder.
+
+### Checking a competency map
+
+`--retrieval-only` ingests the corpus, embeds it and writes the top-k snippets per competency to
+`mcq.retrieval-probe-path`, then stops. No chat calls, so it costs nothing and runs in seconds on a cached
+index — it is the loop for getting a map right before spending a sweep on it.
+
+```bash
+java -jar run.jar --retrieval-only \
+  --mcq.corpus-path=corpus-<set>/<courseKey> \
+  --mcq.chunking.index-path=data/index-<courseKey>.json \
+  --mcq.competency-manifest=config/competencies/<courseKey>.yml \
+  --mcq.retrieval-probe-path=data/retrieval-probe-<courseKey>.csv
+```
+
+Read the CSV, or the one line per competency the run logs, and ask of each competency whether the documents
+it retrieves are the ones that teach it. Three outcomes and what each means:
+
+| | |
+|---|---|
+| the expected document ranks first | the query works; leave it alone |
+| a different document ranks first | either the query is wrong, or the `lectureUnits` link is. Check which by counting the competency's key terms in the extracted text before rewriting either |
+| nothing relevant ranks anywhere, at low scores | the corpus probably does not cover the competency. Say so in the write-up rather than tuning the query until something ranks |
+
+A competency with no `lectureUnits` is logged as *"has no linked material and is skipped"* at startup. That
+is a statement about the manifest, not about the corpus — an unlinked competency is still generated for in
+competency mode, ungrounded.
+
 ### The filter
 
 Every generated question is judged per failure mode with recorded severities. Only the modes in
@@ -213,3 +289,5 @@ at report time, never at write time — revising a price is a re-report, not a r
 - Only one OpenAI-compatible backend shape is proven end to end (Logos); treat other providers as
   untested, and Azure as needing a small addition.
 - No authentication on the web interface; loopback plus SSH tunnel is the mitigation.
+- Retrieval ignores the course key it is given, so one index serves one course; multi-course runs are one
+  sweep per course.

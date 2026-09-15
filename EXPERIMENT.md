@@ -203,8 +203,20 @@ configuration and the pool from the recorded calls and prints the break-even qui
 
 The smoke test and the real run differ only in data:
 
-1. `corpus/<courseKey>/` gets the real course material; `mcq.competency-manifest` points at the directory
-   of course catalogues (`EIDI.json`, `EIST.json`, `PSE.json`), so each course resolves its own model.
+1. Each course gets its own corpus root and its own manifest: `corpus-<set>/<courseKey>/` and
+   `config/competencies/<courseKey>.yml`. **Run one sweep per course**, overriding three properties on the
+   command line, because the embedding index is not scoped by course key — one index over two courses lets
+   either course's material ground the other's questions:
+
+   ```bash
+   java -jar run.jar --experiment=config/sweeps/<sweep>.yml --as=<courseKey> \
+     --mcq.corpus-path=corpus-<set>/<courseKey> \
+     --mcq.chunking.index-path=data/index-<courseKey>.json \
+     --mcq.competency-manifest=config/competencies/<courseKey>.yml
+   ```
+
+   `mcq.competency-manifest` must name a single manifest file. A directory of catalogues, or one
+   `.json` catalogue covering several courses, fails while the index is being built.
 2. `config/models.yml` gains one entry per model tier, on whatever backends serve them.
 3. The supplied request file replaces the smoke one.
 4. The sweep file declares the real configurations — the committed `config/sweeps/example.yml` is the
