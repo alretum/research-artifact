@@ -1,0 +1,114 @@
+# Paper 2, EIDI arm -- OPEN WEIGHTS ONLY, Phase I only.
+#
+#   java -jar run.jar --experiment=config/sweeps/openweights-eidi.yml --as=ow-eidi \
+#     --mcq.corpus-path=corpus-paper2/EIDI \
+#     --mcq.chunking.index-path=data/index-eidi.json \
+#     --mcq.competency-manifest=config/competencies/EIDI.yml
+#
+# This realises step 1 of the master plan's Evaluation Protocol -- "Generate quizzes per
+# configuration from the fixed 12 requests" -- with the models we actually have. Step 2
+# ("Judge every generated item with luna") is a cloud model and lives in the benchmark
+# repository; nothing here reaches it.
+#
+# Two deviations from paper2-eidi.yml, both deliberate:
+#
+#   claude_opus_5 is absent. Logos lists it but passes OpenAI requests to Anthropic
+#   essentially untranslated, so every call fails: first "max_tokens: Field required",
+#   then "messages.0: use the top-level 'system' parameter", and the response comes back
+#   as Anthropic Messages (content[].text, usage.input_tokens) with no choices[]. The
+#   B ladder therefore drops from 4x4 to 3x3 and the A arm from 8 to 7 configurations.
+#
+#   pool.generate-only builds the pools and stops: no pool judging, no additional judge
+#   passes, no quiz assembly. Judging can be added later over the finished pool --
+#   PoolBuilder.judgeWith reads exactly the items that are missing a verdict. Set it to
+#   false for the full run.
+#
+# Everything is served by Logos and priced as gpu-time, so the run costs no tokens.
+#
+# Note on llama33_70b: its first response takes about four minutes (measured 237 s from
+# cold). Any timeout below five minutes will fail it spuriously.
+sweep: openweights-eidi
+requests-file: config/requests/paper2-eidi.yml
+repetitions: 1
+pool:
+  generate-only: true
+  items-per-cell: 20
+  generation-batch-size: 8
+  retrieval-top-m: 12
+  languages: [de]
+  question-types: [single-choice, multiple-choice]
+  difficulties: [medium]
+selection:
+  max-candidates: 40
+  temperature: 1.0
+  max-attempts: 3
+agentic:
+  max-rounds: 5
+configurations:
+  # Approach A -- one configuration per open-weights generator.
+  - id: a-gemma3_4b
+    approach: agentic
+    generator: gemma3_4b
+    judge: gemma3_4b
+  - id: a-llama31_8b
+    approach: agentic
+    generator: llama31_8b
+    judge: llama31_8b
+  - id: a-gemma3_12b
+    approach: agentic
+    generator: gemma3_12b
+    judge: gemma3_12b
+  - id: a-phi4reason
+    approach: agentic
+    generator: phi4reason
+    judge: phi4reason
+  - id: a-qwen38_27b
+    approach: agentic
+    generator: qwen38_27b
+    judge: qwen38_27b
+  - id: a-qwen36_35b
+    approach: agentic
+    generator: qwen36_35b
+    judge: qwen36_35b
+  - id: a-llama33_70b
+    approach: agentic
+    generator: llama33_70b
+    judge: llama33_70b
+  # Approach B -- phase I x phase II over the open-weights ladder. `judge` carries phase II,
+  # because SweepPlan defaults `selector` to `judge`.
+  - id: b-gemma3_4b-gemma3_4b
+    approach: two-phase
+    generator: gemma3_4b
+    judge: gemma3_4b
+  - id: b-gemma3_4b-gemma3_12b
+    approach: two-phase
+    generator: gemma3_4b
+    judge: gemma3_12b
+  - id: b-gemma3_4b-llama33_70b
+    approach: two-phase
+    generator: gemma3_4b
+    judge: llama33_70b
+  - id: b-gemma3_12b-gemma3_4b
+    approach: two-phase
+    generator: gemma3_12b
+    judge: gemma3_4b
+  - id: b-gemma3_12b-gemma3_12b
+    approach: two-phase
+    generator: gemma3_12b
+    judge: gemma3_12b
+  - id: b-gemma3_12b-llama33_70b
+    approach: two-phase
+    generator: gemma3_12b
+    judge: llama33_70b
+  - id: b-llama33_70b-gemma3_4b
+    approach: two-phase
+    generator: llama33_70b
+    judge: gemma3_4b
+  - id: b-llama33_70b-gemma3_12b
+    approach: two-phase
+    generator: llama33_70b
+    judge: gemma3_12b
+  - id: b-llama33_70b-llama33_70b
+    approach: two-phase
+    generator: llama33_70b
+    judge: llama33_70b

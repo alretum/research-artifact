@@ -191,6 +191,18 @@ public final class ChatCall {
                 if (status >= 500) {
                     return Kind.TRANSPORT;
                 }
+                // A 404 from an OpenAI-compatible proxy is not reliably a wrong model name. Logos answers
+                // "No deployment found for model X" for models its own catalogue lists, while the
+                // deployment behind them is briefly down. Classifying that as permanent is expensive out
+                // of proportion to the outage: the call is abandoned after one attempt, then
+                // RunStore.reviveTransientFailures skips the item because its failure is not one of
+                // TIMEOUT/TRANSPORT/RATE_LIMIT, and RunStore.quizIsFinal counts the resulting empty quiz
+                // as final, so a resume never retries it and the sweep still reports "complete".
+                // The cost of the opposite error -- retrying a genuinely misspelled model name -- is two
+                // extra failed calls.
+                if (status == 404) {
+                    return Kind.TRANSPORT;
+                }
                 if (status >= 400) {
                     return Kind.BAD_REQUEST;
                 }

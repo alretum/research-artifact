@@ -84,6 +84,12 @@ public class SweepRunner {
     public int run(Map<String, String> documentHashes) {
         dependencies.store().registerRun(plan.sweep(), "sweep", fingerprint(documentHashes));
         buildPools(documentHashes);
+        if (plan.pool().generateOnly()) {
+            // Phase I in isolation. Assembling now would store empty two-phase quizzes, and quizIsFinal
+            // would then treat them as final, so a later judged run could never fill them in.
+            log.info("Sweep {} is generate-only: pools built, no quizzes assembled", plan.sweep());
+            return 0;
+        }
         return assembleQuizzes();
     }
 
@@ -111,6 +117,9 @@ public class SweepRunner {
                 int completed = builder.build(generator.client(), judge.client());
                 log.info("Pool of generator {} for course {}: {} enqueued, {} completed", generatorKey, courseKey, enqueued, completed);
 
+                if (plan.pool().generateOnly()) {
+                    continue;
+                }
                 for (String judgeKey : judges.subList(1, judges.size())) {
                     ResolvedModel additional = dependencies.models().resolve(judgeKey);
                     builder.judgeWith(additional.model(), dependencies.properties().filter().temperature(), dependencies.properties().filter().maxAttempts(),
@@ -224,7 +233,7 @@ public class SweepRunner {
                 plan.pool().difficulties(), plan.pool().itemsPerCell(), plan.pool().generationBatchSize(), plan.pool().retrievalTopM(), properties.retrieval().maxGroundingTokens(),
                 properties.filter().acceptThreshold(), properties.filter().gatingModes(), generator.model(), properties.generation().temperature(),
                 properties.generation().maxAttempts(), judge.model(), properties.filter().temperature(), properties.filter().maxAttempts(),
-                properties.batch().maxOutputAttempts());
+                properties.batch().maxOutputAttempts(), plan.pool().generateOnly());
     }
 
     private CompetencyManifest manifestOf(String courseKey) {

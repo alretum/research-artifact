@@ -48,6 +48,16 @@ class ChatCallTest {
     }
 
     @Test
+    void retryable_treatsADroppedDeploymentAsTransient() {
+        // Logos answers 404 "No deployment found for model X" for models its own catalogue lists while
+        // the deployment behind them is down. Classifying that as permanent leaves the sweep with cells
+        // that are empty and, per RunStore.quizIsFinal, final.
+        assertThat(ChatCall.retryable("TRANSPORT")).isTrue();
+        assertThat(ChatCall.retryable("BAD_REQUEST")).isFalse();
+        assertThat(ChatCall.retryable("AUTH")).isFalse();
+    }
+
+    @Test
     void execute_sendsTheRequestedModelOnTheRequest() {
         respondWith("ok");
 

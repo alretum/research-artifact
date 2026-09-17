@@ -112,7 +112,7 @@ class SweepRunnerTest {
     @Test
     void run_growsThePoolWhenItCannotFillARequest() {
         SweepPlan plan = new SweepPlan("topup-sweep", "unused.yml", 1,
-                new SweepPlan.Pool(2, 2, 4, Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM)), new SweepPlan.Selection(40, 0.7, 1, 2),
+                new SweepPlan.Pool(2, 2, 4, Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM), false), new SweepPlan.Selection(40, 0.7, 1, 2),
                 new SweepPlan.Agentic(3), List.of(new SweepPlan.Configuration("two-phase-m", SweepPlan.Approach.TWO_PHASE, "m", "m", "m")));
         GenerationRequest request = new GenerationRequest("r3", "EIDI", null, List.of("arrays"), null, Language.DE, Set.of(QuestionType.SINGLE_CHOICE), 3, Difficulty.MEDIUM);
 
@@ -128,7 +128,7 @@ class SweepRunnerTest {
     @Test
     void run_leavesTheQuizIncompleteWhenTopUpIsDisabled() {
         SweepPlan plan = new SweepPlan("no-topup-sweep", "unused.yml", 1,
-                new SweepPlan.Pool(2, 2, 4, Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM)), new SweepPlan.Selection(40, 0.7, 1, 0),
+                new SweepPlan.Pool(2, 2, 4, Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM), false), new SweepPlan.Selection(40, 0.7, 1, 0),
                 new SweepPlan.Agentic(3), List.of(new SweepPlan.Configuration("two-phase-m", SweepPlan.Approach.TWO_PHASE, "m", "m", "m")));
         GenerationRequest request = new GenerationRequest("r3", "EIDI", null, List.of("arrays"), null, Language.DE, Set.of(QuestionType.SINGLE_CHOICE), 3, Difficulty.MEDIUM);
 
@@ -160,7 +160,7 @@ class SweepRunnerTest {
 
     private static SweepPlan plan(int repetitions) {
         return new SweepPlan("test-sweep", "unused.yml", repetitions,
-                new SweepPlan.Pool(2, 2, 4, Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM)), new SweepPlan.Selection(40, 0.7, 1, 0),
+                new SweepPlan.Pool(2, 2, 4, Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM), false), new SweepPlan.Selection(40, 0.7, 1, 0),
                 new SweepPlan.Agentic(3), List.of(new SweepPlan.Configuration("agentic-m", SweepPlan.Approach.AGENTIC, "m", "m", "m"),
                         new SweepPlan.Configuration("two-phase-m", SweepPlan.Approach.TWO_PHASE, "m", "m", "m")));
     }
