@@ -145,10 +145,44 @@ class PoolBuilderTest {
         assertThat(store.poolCandidates(CELL_A, "gen-model", "second-judge", null)).isEmpty();
     }
 
+    @Test
+    void build_underGenerateOnly_generatesEveryItemAndJudgesNone() {
+        when(generatorModel.call(any(Prompt.class))).thenAnswer(_ -> response(quizJson(2)));
+        PoolBuilder generateOnly = new PoolBuilder(store, settings(2, true), new PoolBuilder.Dependencies(manifest(), snippets, new GroundingAssemblyService(),
+                new McqGenerationService(new PromptTemplateService()), new McqFilterService(new PromptTemplateService()), store));
+
+        int created = generateOnly.enqueue(hashes("v1"));
+        int completed = generateOnly.build(ChatClient.create(generatorModel), ChatClient.create(judgeModel));
+
+        assertThat(created).isEqualTo(4);
+        assertThat(completed).isEqualTo(4);
+        org.mockito.Mockito.verifyNoInteractions(judgeModel);
+        assertThat(store.poolCandidates(CELL_A, "gen-model", "judge-model", null)).isEmpty();
+    }
+
+    @Test
+    void build_underGenerateOnly_leavesItemsForALaterJudgeWithPass() {
+        when(generatorModel.call(any(Prompt.class))).thenAnswer(_ -> response(quizJson(2)));
+        when(judgeModel.call(any(Prompt.class))).thenAnswer(_ -> response(verdictJson(0.0)));
+        PoolBuilder generateOnly = new PoolBuilder(store, settings(2, true), new PoolBuilder.Dependencies(manifest(), snippets, new GroundingAssemblyService(),
+                new McqGenerationService(new PromptTemplateService()), new McqFilterService(new PromptTemplateService()), store));
+        generateOnly.enqueue(hashes("v1"));
+        generateOnly.build(ChatClient.create(generatorModel), ChatClient.create(judgeModel));
+
+        int judged = generateOnly.judgeWith("judge-model", 0.2, 1, ChatClient.create(judgeModel));
+
+        assertThat(judged).isEqualTo(4);
+        assertThat(store.poolCandidates(CELL_A, "gen-model", "judge-model", null)).hasSize(2);
+    }
+
     private PoolBuilder.Settings settings(int generationBatchSize) {
+        return settings(generationBatchSize, false);
+    }
+
+    private PoolBuilder.Settings settings(int generationBatchSize, boolean generateOnly) {
         return new PoolBuilder.Settings("run1", "two-phase|gen|judge", "EIDI", Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM), 2,
                 generationBatchSize,
-                8, 6000, 0.7, null, "gen-model", 0.7, 1, "judge-model", 0.2, 1, 2);
+                8, 6000, 0.7, null, "gen-model", 0.7, 1, "judge-model", 0.2, 1, 2, generateOnly);
     }
 
     private static PoolCell cellB() {

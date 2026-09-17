@@ -69,10 +69,12 @@ public class PoolBuilder {
      * @param generationBatchSize largest number of questions one generation call may produce
      * @param retrievalTopM   snippets retrieved per competency
      * @param gatingModes     failure modes whose severity decides pool acceptance
+     * @param generateOnly    generate items and stop, leaving every one of them unjudged
      */
     public record Settings(String runId, String configurationId, String courseKey, Set<Language> languages, Set<QuestionType> questionTypes, Set<Difficulty> difficulties,
             int itemsPerCell, int generationBatchSize, int retrievalTopM, int maxGroundingTokens, double acceptThreshold, Set<FailureMode> gatingModes, String generatorModel,
-            double generatorTemperature, int generatorCallAttempts, String judgeModel, double judgeTemperature, int judgeCallAttempts, int maxOutputAttempts) {
+            double generatorTemperature, int generatorCallAttempts, String judgeModel, double judgeTemperature, int judgeCallAttempts, int maxOutputAttempts,
+            boolean generateOnly) {
     }
 
     private final RunStore store;
@@ -163,16 +165,22 @@ public class PoolBuilder {
         if (revived > 0) {
             log.info("Pool {}: revived {} items that had failed on timeouts, transport errors or throttling", settings.runId(), revived);
         }
-        log.info("Pool {} build: generator {}, judge {} — {}", settings.runId(), settings.generatorModel(), settings.judgeModel(),
+        log.info("Pool {} build: generator {}, judge {}{} — {}", settings.runId(), settings.generatorModel(),
+                settings.generateOnly() ? "(not run: generate-only)" : settings.judgeModel(), settings.generateOnly() ? ", generation only" : "",
                 ItemState.progress(store.stateCounts(settings.runId())));
         int completed = 0;
         while (true) {
-            var judging = store.claimForFiltering(settings.runId());
-            if (judging.isPresent()) {
-                judge(judging.get(), judgeClient);
-                completed++;
-                log.info("Pool {}: {}", settings.runId(), ItemState.progress(store.stateCounts(settings.runId())));
-                continue;
+            // Filtering has priority over generating, so that an item never waits behind a queue of fresh
+            // ones. Under generateOnly the branch is skipped entirely and items are left GENERATED for a
+            // later judgeWith pass, which reads exactly the items that are missing a verdict.
+            if (!settings.generateOnly()) {
+                var judging = store.claimForFiltering(settings.runId());
+                if (judging.isPresent()) {
+                    judge(judging.get(), judgeClient);
+                    completed++;
+                    log.info("Pool {}: {}", settings.runId(), ItemState.progress(store.stateCounts(settings.runId())));
+                    continue;
+                }
             }
             List<Claim> batch = store.claimBatch(settings.runId(), settings.generationBatchSize());
             if (batch.isEmpty()) {
