@@ -38,10 +38,11 @@ public class ModelRegistry {
     /**
      * A model resolved to the client that reaches it.
      *
-     * @param model  provider model name, to be sent with each request and recorded on each call
-     * @param client the client to issue through
+     * @param model           provider model name, to be sent with each request and recorded on each call
+     * @param client          the client to issue through
+     * @param omitTemperature whether requests must carry no temperature, leaving the provider's default
      */
-    public record ResolvedModel(String model, ChatClient client) {
+    public record ResolvedModel(String model, ChatClient client, boolean omitTemperature) {
     }
 
     /**
@@ -57,10 +58,10 @@ public class ModelRegistry {
         Backend backend = catalogue.backendFor(entry);
         requireKey(backend);
         if (backend.isDefault()) {
-            return new ResolvedModel(entry.model(), defaultClient);
+            return new ResolvedModel(entry.model(), defaultClient, entry.omitTemperature());
         }
         ChatClient client = byBackend.computeIfAbsent(backend.name(), name -> BackendClientFactory.create(backend, System.getenv(backend.apiKeyEnv())));
-        return new ResolvedModel(entry.model(), client);
+        return new ResolvedModel(entry.model(), client, entry.omitTemperature());
     }
 
     /**

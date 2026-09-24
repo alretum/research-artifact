@@ -176,7 +176,7 @@ class SweepRunnerTest {
         GroundingAssemblyService grounding = new GroundingAssemblyService();
         SnippetSource snippets = (query, limit, courseKey) -> List.of(snippet(1), snippet(2), snippet(3), snippet(4));
         ModelCatalogue catalogue = new ModelCatalogue(Map.of("main", new ModelCatalogue.Backend("main", "http://localhost/v1", "PATH", true)),
-                Map.of("m", new ModelCatalogue.ModelEntry("m", "main", "test-model")));
+                Map.of("m", new ModelCatalogue.ModelEntry("m", "main", "test-model", false)));
         ModelRegistry registry = new ModelRegistry(catalogue, ChatClient.create(model));
         PipelineProperties properties = properties();
         return new SweepRunner(plan, List.of(request), new SweepRunner.Dependencies(Map.of("EIDI", manifest), snippets, grounding, generation, filter,

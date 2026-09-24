@@ -49,6 +49,12 @@ public final class ChatCall {
     /** Field inside {@code prompt_tokens_details} in which the Logos proxy reports prompt tokens written to its cache. */
     private static final String CACHE_WRITE_FIELD = "created_cache_tokens";
 
+    /**
+     * Temperature value that sends no temperature at all, so the provider applies its default. For models whose
+     * provider rejects every explicit value.
+     */
+    public static final double PROVIDER_DEFAULT_TEMPERATURE = Double.NaN;
+
     private ChatCall() {
     }
 
@@ -119,7 +125,7 @@ public final class ChatCall {
      *
      * @param stage       telemetry label for the pipeline stage, for example {@code "generation"}
      * @param model       provider model name, sent with the request and recorded verbatim
-     * @param temperature sampling temperature
+     * @param temperature sampling temperature, or {@link #PROVIDER_DEFAULT_TEMPERATURE} to send none
      * @param maxAttempts total attempts including the first; must be at least 1
      * @param client      the chat client to issue through
      * @param system      system prompt
@@ -138,10 +144,14 @@ public final class ChatCall {
         Kind lastKind = null;
         int attemptsMade = 0;
 
+        OpenAiChatOptions.Builder options = OpenAiChatOptions.builder().model(model);
+        if (!Double.isNaN(temperature)) {
+            options.temperature(temperature);
+        }
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             attemptsMade = attempt;
             try {
-                ChatResponse response = client.prompt().system(system).user(user).options(OpenAiChatOptions.builder().model(model).temperature(temperature)).call().chatResponse();
+                ChatResponse response = client.prompt().system(system).user(user).options(options).call().chatResponse();
                 return new Outcome(response, record(requestId, stage, model, start, attempt - 1, response, null, null), null);
             }
             catch (Exception e) {

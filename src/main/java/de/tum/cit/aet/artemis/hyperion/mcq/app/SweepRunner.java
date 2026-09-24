@@ -34,6 +34,7 @@ import de.tum.cit.aet.artemis.hyperion.mcq.generation.McqGenerationService;
 import de.tum.cit.aet.artemis.hyperion.mcq.grounding.GroundingAssemblyService;
 import de.tum.cit.aet.artemis.hyperion.mcq.grounding.SnippetSource;
 import de.tum.cit.aet.artemis.hyperion.mcq.ingest.CompetencyManifest;
+import de.tum.cit.aet.artemis.hyperion.mcq.llm.ChatCall;
 import de.tum.cit.aet.artemis.hyperion.mcq.llm.StructuredOutputs;
 import de.tum.cit.aet.artemis.hyperion.mcq.plan.ModelRegistry;
 import de.tum.cit.aet.artemis.hyperion.mcq.plan.ModelRegistry.ResolvedModel;
@@ -113,8 +114,8 @@ public class SweepRunner {
 
                 for (String judgeKey : judges.subList(1, judges.size())) {
                     ResolvedModel additional = dependencies.models().resolve(judgeKey);
-                    builder.judgeWith(additional.model(), dependencies.properties().filter().temperature(), dependencies.properties().filter().maxAttempts(),
-                            additional.client());
+                    builder.judgeWith(additional.model(), temperature(additional, dependencies.properties().filter().temperature()),
+                            dependencies.properties().filter().maxAttempts(), additional.client());
                 }
             }
         }
@@ -209,12 +210,13 @@ public class SweepRunner {
         SelectionSettings selection = null;
         if (configuration.approach() == SweepPlan.Approach.TWO_PHASE) {
             ResolvedModel selector = dependencies.models().resolve(configuration.selector());
-            selection = new SelectionSettings(new ModelCall(selector.client(), selector.model(), plan.selection().temperature(), plan.selection().maxAttempts()),
-                    plan.selection().maxCandidates(), null);
+            selection = new SelectionSettings(new ModelCall(selector.client(), selector.model(), temperature(selector, plan.selection().temperature()),
+                    plan.selection().maxAttempts()), plan.selection().maxCandidates(), null);
         }
         return new ApproachContext(manifestOf(request.courseKey()), dependencies.store(), dependencies.snippets(),
-                new ModelCall(generator.client(), generator.model(), properties.generation().temperature(), properties.generation().maxAttempts()),
-                new ModelCall(judge.client(), judge.model(), properties.filter().temperature(), properties.filter().maxAttempts()), properties.retrieval().topK(),
+                new ModelCall(generator.client(), generator.model(), temperature(generator, properties.generation().temperature()), properties.generation().maxAttempts()),
+                new ModelCall(judge.client(), judge.model(), temperature(judge, properties.filter().temperature()), properties.filter().maxAttempts()),
+                properties.retrieval().topK(),
                 properties.retrieval().maxGroundingTokens(), properties.filter().acceptThreshold(), properties.filter().gatingModes(), plan.agentic().maxRounds(), selection);
     }
 
@@ -222,9 +224,16 @@ public class SweepRunner {
         PipelineProperties properties = dependencies.properties();
         return new PoolBuilder.Settings("pool-" + generatorKey, "pool|" + generatorKey, courseKey, plan.pool().languages(), plan.pool().questionTypes(),
                 plan.pool().difficulties(), plan.pool().itemsPerCell(), plan.pool().generationBatchSize(), plan.pool().retrievalTopM(), properties.retrieval().maxGroundingTokens(),
-                properties.filter().acceptThreshold(), properties.filter().gatingModes(), generator.model(), properties.generation().temperature(),
-                properties.generation().maxAttempts(), judge.model(), properties.filter().temperature(), properties.filter().maxAttempts(),
+                properties.filter().acceptThreshold(), properties.filter().gatingModes(), generator.model(), temperature(generator, properties.generation().temperature()),
+                properties.generation().maxAttempts(), judge.model(), temperature(judge, properties.filter().temperature()), properties.filter().maxAttempts(),
                 properties.batch().maxOutputAttempts(), poolCompetencies(courseKey));
+    }
+
+    /**
+     * The temperature to send to a model: the configured value, or none for a model whose provider rejects every explicit value.
+     */
+    private static double temperature(ResolvedModel model, double configured) {
+        return model.omitTemperature() ? ChatCall.PROVIDER_DEFAULT_TEMPERATURE : configured;
     }
 
     /**

@@ -84,6 +84,17 @@ class ChatCallTest {
     }
 
     @Test
+    void execute_sendsNoTemperatureWhenTheProviderDefaultIsRequested() {
+        respondWith("ok");
+
+        ChatCall.execute("filter", "claude-opus-5", ChatCall.PROVIDER_DEFAULT_TEMPERATURE, 1, chatClient, "system", "user");
+
+        verify(chatModel).call(prompt.capture());
+        assertThat(prompt.getValue().getOptions().getTemperature()).isNull();
+        assertThat(prompt.getValue().getOptions().getModel()).isEqualTo("claude-opus-5");
+    }
+
+    @Test
     void execute_recordsTheModelEvenWhenEveryAttemptFails() {
         when(chatModel.call(any(Prompt.class))).thenThrow(new IllegalStateException("connection refused"));
 

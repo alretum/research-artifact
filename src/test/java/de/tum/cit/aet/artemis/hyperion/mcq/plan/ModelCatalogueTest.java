@@ -22,6 +22,15 @@ class ModelCatalogueTest {
     }
 
     @Test
+    void readsTheTemperatureSwitchAndDefaultsItToSending() {
+        var catalogue = ModelCatalogue.parse(Map.of("backends", BACKENDS, "models", Map.of("fixed", Map.of("backend", "logos", "model", "provider/fixed", "omit-temperature", true),
+                "free", Map.of("backend", "logos", "model", "provider/free"))));
+
+        assertThat(catalogue.requireModel("fixed").omitTemperature()).isTrue();
+        assertThat(catalogue.requireModel("free").omitTemperature()).isFalse();
+    }
+
+    @Test
     void treatsABackendWithoutTheDefaultFlagAsNonDefault() {
         var catalogue = ModelCatalogue.parse(Map.of("backends", BACKENDS, "models", Map.of("m", Map.of("backend", "azure", "model", "provider/m"))));
 

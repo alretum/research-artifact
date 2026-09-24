@@ -35,11 +35,13 @@ public record ModelCatalogue(Map<String, Backend> backends, Map<String, ModelEnt
     /**
      * One chat model and the backend serving it.
      *
-     * @param key     catalogue key, used in run plans
-     * @param backend backend name, which must exist in {@link #backends()}
-     * @param model   provider model id, exactly as the provider reports it and as calls record it
+     * @param key             catalogue key, used in run plans
+     * @param backend         backend name, which must exist in {@link #backends()}
+     * @param model           provider model id, exactly as the provider reports it and as calls record it
+     * @param omitTemperature whether requests to this model carry no temperature, leaving the provider's default; for
+     *                        models whose provider rejects any other value
      */
-    public record ModelEntry(String key, String backend, String model) {
+    public record ModelEntry(String key, String backend, String model, boolean omitTemperature) {
     }
 
     /**
@@ -109,7 +111,8 @@ public record ModelCatalogue(Map<String, Backend> backends, Map<String, ModelEnt
         Map<String, ModelEntry> models = new LinkedHashMap<>();
         ((Map<String, Object>) root.getOrDefault("models", Map.of())).forEach((key, body) -> {
             Map<String, Object> fields = (Map<String, Object>) body;
-            models.put(key, new ModelEntry(key, string(fields, "backend", "model " + key), string(fields, "model", "model " + key)));
+            models.put(key, new ModelEntry(key, string(fields, "backend", "model " + key), string(fields, "model", "model " + key),
+                    Boolean.TRUE.equals(fields.get("omit-temperature"))));
         });
 
         if (models.isEmpty()) {

@@ -94,6 +94,9 @@ models:
   claude-opus-5:
     backend: logos
     model: claude-opus-5
+    # The provider answers HTTP 500 to any explicit temperature other than its default of 1.0 (verified 2026-09-24: the same
+    # request passed at 1.0 and failed at 0.2), so requests to this model carry none and run at the provider default.
+    omit-temperature: true
 
   # A second Logos model: uncomment, set the id, and it is usable in a plan straight away.
   #
