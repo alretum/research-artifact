@@ -69,10 +69,12 @@ public class PoolBuilder {
      * @param generationBatchSize largest number of questions one generation call may produce
      * @param retrievalTopM   snippets retrieved per competency
      * @param gatingModes     failure modes whose severity decides pool acceptance
+     * @param competencyKeys  competencies the grid covers; empty covers every competency of the course model
      */
     public record Settings(String runId, String configurationId, String courseKey, Set<Language> languages, Set<QuestionType> questionTypes, Set<Difficulty> difficulties,
             int itemsPerCell, int generationBatchSize, int retrievalTopM, int maxGroundingTokens, double acceptThreshold, Set<FailureMode> gatingModes, String generatorModel,
-            double generatorTemperature, int generatorCallAttempts, String judgeModel, double judgeTemperature, int judgeCallAttempts, int maxOutputAttempts) {
+            double generatorTemperature, int generatorCallAttempts, String judgeModel, double judgeTemperature, int judgeCallAttempts, int maxOutputAttempts,
+            Set<String> competencyKeys) {
     }
 
     private final RunStore store;
@@ -106,7 +108,8 @@ public class PoolBuilder {
             }
         }
 
-        List<PoolCell> grid = PoolGrid.derive(settings.courseKey(), dependencies.manifest(), settings.languages(), settings.questionTypes(), settings.difficulties());
+        List<PoolCell> grid = PoolGrid.derive(settings.courseKey(), dependencies.manifest(), settings.languages(), settings.questionTypes(), settings.difficulties(),
+                settings.competencyKeys());
         List<PoolItem> items = new ArrayList<>();
         for (PoolCell cell : grid) {
             int existing = store.itemCountForTopic(settings.runId(), settings.configurationId(), cell.key());

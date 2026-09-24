@@ -112,7 +112,8 @@ class SweepRunnerTest {
     @Test
     void run_growsThePoolWhenItCannotFillARequest() {
         SweepPlan plan = new SweepPlan("topup-sweep", "unused.yml", 1,
-                new SweepPlan.Pool(2, 2, 4, Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM)), new SweepPlan.Selection(40, 0.7, 1, 2),
+                new SweepPlan.Pool(2, 2, 4, Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM), SweepPlan.PoolScope.ALL),
+                new SweepPlan.Selection(40, 0.7, 1, 2),
                 new SweepPlan.Agentic(3), List.of(new SweepPlan.Configuration("two-phase-m", SweepPlan.Approach.TWO_PHASE, "m", "m", "m")));
         GenerationRequest request = new GenerationRequest("r3", "EIDI", null, List.of("arrays"), null, Language.DE, Set.of(QuestionType.SINGLE_CHOICE), 3, Difficulty.MEDIUM);
 
@@ -126,9 +127,29 @@ class SweepRunnerTest {
     }
 
     @Test
+    void run_buildsPoolCellsOnlyForRequestedCompetenciesWhenScoped() {
+        SweepPlan plan = new SweepPlan("scoped-sweep", "unused.yml", 1,
+                new SweepPlan.Pool(2, 2, 4, Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM), SweepPlan.PoolScope.REQUESTS),
+                new SweepPlan.Selection(40, 0.7, 1, 0), new SweepPlan.Agentic(3),
+                List.of(new SweepPlan.Configuration("two-phase-m", SweepPlan.Approach.TWO_PHASE, "m", "m", "m")));
+        GenerationRequest request = new GenerationRequest("r4", "EIDI", null, List.of("arrays"), null, Language.DE, Set.of(QuestionType.SINGLE_CHOICE), 1, Difficulty.MEDIUM);
+        CompetencyManifest twoCompetencies = new CompetencyManifest(new Course("EIDI", "EIDI", ""),
+                List.of(new Competency("arrays", "Arrays", "Du kannst Arrays erstellen.", null, Taxonomy.APPLY, false, null, List.of(), List.of(), List.of()),
+                        new Competency("listen", "Listen", "Du kannst Listen nutzen.", null, Taxonomy.APPLY, false, null, List.of(), List.of(), List.of())));
+
+        runner(plan, request, twoCompetencies).run(Map.of("deck.pdf", "v1"));
+
+        String arrays = new PoolCell("EIDI", "arrays", Language.DE, QuestionType.SINGLE_CHOICE, Difficulty.MEDIUM).key();
+        String listen = new PoolCell("EIDI", "listen", Language.DE, QuestionType.SINGLE_CHOICE, Difficulty.MEDIUM).key();
+        assertThat(store.itemCountForTopic("pool-m", "pool|m", arrays)).isEqualTo(2);
+        assertThat(store.itemCountForTopic("pool-m", "pool|m", listen)).isZero();
+    }
+
+    @Test
     void run_leavesTheQuizIncompleteWhenTopUpIsDisabled() {
         SweepPlan plan = new SweepPlan("no-topup-sweep", "unused.yml", 1,
-                new SweepPlan.Pool(2, 2, 4, Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM)), new SweepPlan.Selection(40, 0.7, 1, 0),
+                new SweepPlan.Pool(2, 2, 4, Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM), SweepPlan.PoolScope.ALL),
+                new SweepPlan.Selection(40, 0.7, 1, 0),
                 new SweepPlan.Agentic(3), List.of(new SweepPlan.Configuration("two-phase-m", SweepPlan.Approach.TWO_PHASE, "m", "m", "m")));
         GenerationRequest request = new GenerationRequest("r3", "EIDI", null, List.of("arrays"), null, Language.DE, Set.of(QuestionType.SINGLE_CHOICE), 3, Difficulty.MEDIUM);
 
@@ -145,6 +166,10 @@ class SweepRunnerTest {
     }
 
     private SweepRunner runner(SweepPlan plan, GenerationRequest request) {
+        return runner(plan, request, manifest());
+    }
+
+    private SweepRunner runner(SweepPlan plan, GenerationRequest request, CompetencyManifest manifest) {
         PromptTemplateService templates = new PromptTemplateService();
         McqGenerationService generation = new McqGenerationService(templates);
         McqFilterService filter = new McqFilterService(templates);
@@ -154,13 +179,14 @@ class SweepRunnerTest {
                 Map.of("m", new ModelCatalogue.ModelEntry("m", "main", "test-model")));
         ModelRegistry registry = new ModelRegistry(catalogue, ChatClient.create(model));
         PipelineProperties properties = properties();
-        return new SweepRunner(plan, List.of(request), new SweepRunner.Dependencies(Map.of("EIDI", manifest()), snippets, grounding, generation, filter,
+        return new SweepRunner(plan, List.of(request), new SweepRunner.Dependencies(Map.of("EIDI", manifest), snippets, grounding, generation, filter,
                 new AgenticApproach(grounding, generation, filter), new TwoPhaseApproach(new PoolSelectionService(templates)), store, registry, properties));
     }
 
     private static SweepPlan plan(int repetitions) {
         return new SweepPlan("test-sweep", "unused.yml", repetitions,
-                new SweepPlan.Pool(2, 2, 4, Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM)), new SweepPlan.Selection(40, 0.7, 1, 0),
+                new SweepPlan.Pool(2, 2, 4, Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM), SweepPlan.PoolScope.ALL),
+                new SweepPlan.Selection(40, 0.7, 1, 0),
                 new SweepPlan.Agentic(3), List.of(new SweepPlan.Configuration("agentic-m", SweepPlan.Approach.AGENTIC, "m", "m", "m"),
                         new SweepPlan.Configuration("two-phase-m", SweepPlan.Approach.TWO_PHASE, "m", "m", "m")));
     }

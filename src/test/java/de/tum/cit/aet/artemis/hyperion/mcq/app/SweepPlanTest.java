@@ -63,6 +63,46 @@ class SweepPlanTest {
     }
 
     @Test
+    void load_readsThePoolScope() throws IOException {
+        SweepPlan plan = SweepPlan.load(file("""
+                sweep: scoped
+                requests-file: requests.yml
+                pool:
+                  scope: requests
+                configurations:
+                  - { id: a, approach: agentic, generator: m, judge: m }
+                """));
+
+        assertThat(plan.pool().scope()).isEqualTo(SweepPlan.PoolScope.REQUESTS);
+    }
+
+    @Test
+    void load_coversEveryCompetencyWhenNoPoolScopeIsGiven() throws IOException {
+        SweepPlan plan = SweepPlan.load(file("""
+                sweep: unscoped
+                requests-file: requests.yml
+                configurations:
+                  - { id: a, approach: agentic, generator: m, judge: m }
+                """));
+
+        assertThat(plan.pool().scope()).isEqualTo(SweepPlan.PoolScope.ALL);
+    }
+
+    @Test
+    void load_rejectsAnUnknownPoolScope() throws IOException {
+        Path file = file("""
+                sweep: broken
+                requests-file: requests.yml
+                pool:
+                  scope: everything
+                configurations:
+                  - { id: a, approach: agentic, generator: m, judge: m }
+                """);
+
+        assertThatThrownBy(() -> SweepPlan.load(file)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("'everything'");
+    }
+
+    @Test
     void named_replacesOnlyTheSweepName() throws IOException {
         SweepPlan plan = SweepPlan.load(file("""
                 sweep: minimal

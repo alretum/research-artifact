@@ -42,6 +42,21 @@ class PoolGridTest {
     }
 
     @Test
+    void derive_limitsTheGridToTheGivenCompetencies() {
+        List<PoolCell> cells = PoolGrid.derive("EIDI", manifest("arrays", "basistypen", "listen"), Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE),
+                Set.of(Difficulty.MEDIUM), Set.of("listen", "arrays"));
+
+        assertThat(cells).extracting(PoolCell::competencyKey).containsExactly("arrays", "listen");
+    }
+
+    @Test
+    void derive_rejectsACompetencyKeyTheManifestDoesNotDeclare() {
+        assertThatThrownBy(
+                () -> PoolGrid.derive("EIDI", manifest("arrays"), Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM), Set.of("rekursion")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("'rekursion'");
+    }
+
+    @Test
     void derive_rejectsAnEmptyDimension() {
         assertThatThrownBy(() -> PoolGrid.derive("EIDI", manifest("arrays"), Set.of(), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("languages");

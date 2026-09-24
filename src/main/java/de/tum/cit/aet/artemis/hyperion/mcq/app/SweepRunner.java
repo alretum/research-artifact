@@ -224,7 +224,24 @@ public class SweepRunner {
                 plan.pool().difficulties(), plan.pool().itemsPerCell(), plan.pool().generationBatchSize(), plan.pool().retrievalTopM(), properties.retrieval().maxGroundingTokens(),
                 properties.filter().acceptThreshold(), properties.filter().gatingModes(), generator.model(), properties.generation().temperature(),
                 properties.generation().maxAttempts(), judge.model(), properties.filter().temperature(), properties.filter().maxAttempts(),
-                properties.batch().maxOutputAttempts());
+                properties.batch().maxOutputAttempts(), poolCompetencies(courseKey));
+    }
+
+    /**
+     * The competencies the pool grid of a course covers: every competency some request of that course names when the plan's
+     * pool scope is {@code requests}, otherwise none, which the builder reads as the whole course model.
+     */
+    private Set<String> poolCompetencies(String courseKey) {
+        if (plan.pool().scope() != SweepPlan.PoolScope.REQUESTS) {
+            return Set.of();
+        }
+        Set<String> keys = new LinkedHashSet<>();
+        for (GenerationRequest request : requests) {
+            if (request.courseKey().equals(courseKey)) {
+                keys.addAll(request.competencyKeys());
+            }
+        }
+        return Set.copyOf(keys);
     }
 
     private CompetencyManifest manifestOf(String courseKey) {

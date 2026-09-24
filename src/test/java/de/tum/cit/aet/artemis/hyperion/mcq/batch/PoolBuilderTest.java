@@ -148,7 +148,7 @@ class PoolBuilderTest {
     private PoolBuilder.Settings settings(int generationBatchSize) {
         return new PoolBuilder.Settings("run1", "two-phase|gen|judge", "EIDI", Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM), 2,
                 generationBatchSize,
-                8, 6000, 0.7, null, "gen-model", 0.7, 1, "judge-model", 0.2, 1, 2);
+                8, 6000, 0.7, null, "gen-model", 0.7, 1, "judge-model", 0.2, 1, 2, Set.of());
     }
 
     private static PoolCell cellB() {
