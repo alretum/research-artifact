@@ -23,8 +23,15 @@ public class ModelRegistry {
 
     private final ChatClient defaultClient;
 
-    /** One client per non-default backend, built on first use and reused for every model on it. */
+    /**
+     * One client per non-default backend, built on first use and reused for every model on it. A model that must
+     * receive no temperature gets a client of its own even on the default backend, keyed with
+     * {@link #BARE_CLIENT_SUFFIX}: the application's configured client carries default request options, temperature
+     * included, and a request that names none inherits them.
+     */
     private final Map<String, ChatClient> byBackend = new ConcurrentHashMap<>();
+
+    private static final String BARE_CLIENT_SUFFIX = "#no-default-options";
 
     /**
      * @param catalogue     declared backends and models
@@ -57,10 +64,11 @@ public class ModelRegistry {
         ModelEntry entry = catalogue.requireModel(modelKey);
         Backend backend = catalogue.backendFor(entry);
         requireKey(backend);
-        if (backend.isDefault()) {
-            return new ResolvedModel(entry.model(), defaultClient, entry.omitTemperature());
+        if (backend.isDefault() && !entry.omitTemperature()) {
+            return new ResolvedModel(entry.model(), defaultClient, false);
         }
-        ChatClient client = byBackend.computeIfAbsent(backend.name(), name -> BackendClientFactory.create(backend, System.getenv(backend.apiKeyEnv())));
+        String clientKey = entry.omitTemperature() ? backend.name() + BARE_CLIENT_SUFFIX : backend.name();
+        ChatClient client = byBackend.computeIfAbsent(clientKey, _ -> BackendClientFactory.create(backend, System.getenv(backend.apiKeyEnv())));
         return new ResolvedModel(entry.model(), client, entry.omitTemperature());
     }
 
