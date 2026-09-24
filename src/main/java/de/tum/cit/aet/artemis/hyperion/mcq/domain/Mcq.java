@@ -222,21 +222,35 @@ public final class Mcq {
      * records accumulate across attempts and are never cleared on eventual success, they preserve the full
      * attempt history of an item.
      *
-     * @param stage           {@code "generation"} or {@code "filter"}
-     * @param promptTokens    reported by the provider, {@code null} when unavailable
-     * @param outcome         {@code "success"}, {@code "error"} or {@code "timeout"} for the call
-     * @param errorMessage    {@code null} unless the call itself failed
-     * @param failureCategory why the attempt did not yield a usable result, {@code null} when it did
+     * @param stage                {@code "generation"} or {@code "filter"}
+     * @param promptTokens         reported by the provider, {@code null} when unavailable
+     * @param outcome              {@code "success"}, {@code "error"} or {@code "timeout"} for the call
+     * @param errorMessage         {@code null} unless the call itself failed
+     * @param failureCategory      why the attempt did not yield a usable result, {@code null} when it did
+     * @param cacheReadTokens      prompt tokens the provider served from its prompt cache, {@code null} when it reported none
+     * @param cacheWriteTokens     prompt tokens the provider wrote to its prompt cache, {@code null} when it reported none
+     * @param providerCost         the charge the provider itself reported for this call, {@code null} when it reported none; never
+     *                             a price computed here
+     * @param providerCostCurrency ISO 4217 code of {@code providerCost}, {@code null} when it reported none
      */
     public record CallRecord(String requestId, String stage, String model, Integer promptTokens, Integer completionTokens, long wallClockMs, int retryCount, String outcome,
-            String errorMessage, String failureCategory) {
+            String errorMessage, String failureCategory, Integer cacheReadTokens, Integer cacheWriteTokens, Double providerCost, String providerCostCurrency) {
+
+        /**
+         * Creates a record without cache and provider-cost figures.
+         */
+        public CallRecord(String requestId, String stage, String model, Integer promptTokens, Integer completionTokens, long wallClockMs, int retryCount, String outcome,
+                String errorMessage, String failureCategory) {
+            this(requestId, stage, model, promptTokens, completionTokens, wallClockMs, retryCount, outcome, errorMessage, failureCategory, null, null, null, null);
+        }
 
         /**
          * @param category failure category to attach
          * @return a copy carrying the given category
          */
         public CallRecord withFailureCategory(String category) {
-            return new CallRecord(requestId, stage, model, promptTokens, completionTokens, wallClockMs, retryCount, outcome, errorMessage, category);
+            return new CallRecord(requestId, stage, model, promptTokens, completionTokens, wallClockMs, retryCount, outcome, errorMessage, category, cacheReadTokens,
+                    cacheWriteTokens, providerCost, providerCostCurrency);
         }
     }
 

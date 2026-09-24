@@ -17,11 +17,17 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.metadata.ChatResponseMetadata;
+import org.springframework.ai.chat.metadata.DefaultUsage;
+import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.openai.OpenAiChatOptions;
+
+import com.openai.core.JsonValue;
+import com.openai.models.completions.CompletionUsage;
 
 class ChatCallTest {
 
@@ -88,7 +94,42 @@ class ChatCallTest {
         assertThat(outcome.record().retryCount()).isEqualTo(1);
     }
 
+    @Test
+    void execute_recordsTheProviderCostAndCacheTokensFromTheNativeUsage() {
+        CompletionUsage nativeUsage = CompletionUsage.builder().promptTokens(24).completionTokens(4).totalTokens(28)
+                .promptTokensDetails(CompletionUsage.PromptTokensDetails.builder().cachedTokens(20).putAdditionalProperty("created_cache_tokens", JsonValue.from(4)).build())
+                .putAdditionalProperty("cost", JsonValue.from(0.00022)).putAdditionalProperty("cost_currency", JsonValue.from("USD")).build();
+        respondWith("ok", new DefaultUsage(24, 4, 28, nativeUsage));
+
+        var record = ChatCall.execute("generation", "claude-opus-5", 1.0, 1, chatClient, "system", "user").record();
+
+        assertThat(record.promptTokens()).isEqualTo(24);
+        assertThat(record.completionTokens()).isEqualTo(4);
+        assertThat(record.cacheReadTokens()).isEqualTo(20);
+        assertThat(record.cacheWriteTokens()).isEqualTo(4);
+        assertThat(record.providerCost()).isEqualTo(0.00022);
+        assertThat(record.providerCostCurrency()).isEqualTo("USD");
+    }
+
+    @Test
+    void execute_leavesCostAndCacheTokensNullWhenTheProviderReportsNone() {
+        respondWith("ok", new DefaultUsage(24, 4, 28, CompletionUsage.builder().promptTokens(24).completionTokens(4).totalTokens(28).build()));
+
+        var record = ChatCall.execute("generation", "google/gemma-3-12b-it", 1.0, 1, chatClient, "system", "user").record();
+
+        assertThat(record.promptTokens()).isEqualTo(24);
+        assertThat(record.cacheReadTokens()).isNull();
+        assertThat(record.cacheWriteTokens()).isNull();
+        assertThat(record.providerCost()).isNull();
+        assertThat(record.providerCostCurrency()).isNull();
+    }
+
     private void respondWith(String text) {
         when(chatModel.call(any(Prompt.class))).thenAnswer(_ -> new ChatResponse(List.of(new Generation(new AssistantMessage(text)))));
+    }
+
+    private void respondWith(String text, Usage usage) {
+        when(chatModel.call(any(Prompt.class)))
+                .thenAnswer(_ -> new ChatResponse(List.of(new Generation(new AssistantMessage(text))), ChatResponseMetadata.builder().usage(usage).build()));
     }
 }

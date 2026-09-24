@@ -11,7 +11,11 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.openai.OpenAiChatOptions;
 
+import com.openai.core.JsonNumber;
+import com.openai.core.JsonString;
+import com.openai.core.JsonValue;
 import com.openai.errors.OpenAIServiceException;
+import com.openai.models.completions.CompletionUsage;
 
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.CallRecord;
 
@@ -35,6 +39,15 @@ public final class ChatCall {
     private static final long INITIAL_BACKOFF_MS = 1_000;
 
     private static final long MAX_BACKOFF_MS = 30_000;
+
+    /** Usage field in which the Logos proxy reports the charge for a call; absent from other providers. */
+    private static final String COST_FIELD = "cost";
+
+    /** Usage field naming the currency of {@link #COST_FIELD}. */
+    private static final String COST_CURRENCY_FIELD = "cost_currency";
+
+    /** Field inside {@code prompt_tokens_details} in which the Logos proxy reports prompt tokens written to its cache. */
+    private static final String CACHE_WRITE_FIELD = "created_cache_tokens";
 
     private ChatCall() {
     }
@@ -220,14 +233,30 @@ public final class ChatCall {
     private static CallRecord record(String requestId, String stage, String model, long start, int retries, ChatResponse response, Exception failure, Kind kind) {
         Integer promptTokens = null;
         Integer completionTokens = null;
+        Integer cacheReadTokens = null;
+        Integer cacheWriteTokens = null;
+        Double providerCost = null;
+        String providerCostCurrency = null;
         if (response != null && response.getMetadata() != null && response.getMetadata().getUsage() != null) {
             var usage = response.getMetadata().getUsage();
             promptTokens = usage.getPromptTokens() == null ? null : usage.getPromptTokens().intValue();
             completionTokens = usage.getCompletionTokens() == null ? null : usage.getCompletionTokens().intValue();
+            if (usage.getNativeUsage() instanceof CompletionUsage nativeUsage) {
+                cacheReadTokens = nativeUsage.promptTokensDetails().flatMap(CompletionUsage.PromptTokensDetails::cachedTokens).map(Long::intValue).orElse(null);
+                cacheWriteTokens = nativeUsage.promptTokensDetails().map(details -> number(details._additionalProperties().get(CACHE_WRITE_FIELD))).map(Number::intValue)
+                        .orElse(null);
+                Number cost = number(nativeUsage._additionalProperties().get(COST_FIELD));
+                providerCost = cost == null ? null : cost.doubleValue();
+                providerCostCurrency = nativeUsage._additionalProperties().get(COST_CURRENCY_FIELD) instanceof JsonString currency ? currency.value() : null;
+            }
         }
         long elapsedMs = (System.nanoTime() - start) / 1_000_000;
         String outcome = failure == null ? "success" : "error";
         return new CallRecord(requestId, stage, model, promptTokens, completionTokens, elapsedMs, retries, outcome, failure == null ? null : failure.getMessage(),
-                kind == null ? null : kind.name());
+                kind == null ? null : kind.name(), cacheReadTokens, cacheWriteTokens, providerCost, providerCostCurrency);
+    }
+
+    private static Number number(JsonValue value) {
+        return value instanceof JsonNumber number ? number.value() : null;
     }
 }
