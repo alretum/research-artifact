@@ -67,9 +67,11 @@ models:
     backend: logos
     model: google/gemma-3-12b-it
 
+  # The 4-bit build (RedHatAI/Llama-3.3-70B-Instruct-quantized.w4a16) stopped answering on 2026-09-24 00:40 and was
+  # withdrawn from the service on 2026-09-25; this FP8 build replaced it and answered from 13:10.
   llama33-70b:
     backend: logos
-    model: RedHatAI/Llama-3.3-70B-Instruct-quantized.w4a16
+    model: RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic
 
   # Further open-weights models Logos serves, usable in a plan without further wiring.
   qwen38-27b:
