@@ -34,6 +34,7 @@ import de.tum.cit.aet.artemis.hyperion.mcq.approach.TwoPhaseApproach;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Difficulty;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.GenerationRequest;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Language;
+import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.CallRecord;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.FailureMode;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.QuestionType;
 import de.tum.cit.aet.artemis.hyperion.mcq.domain.Mcq.Snippet;
@@ -107,6 +108,35 @@ class SweepRunnerTest {
         runner.run(Map.of("deck.pdf", "v1"));
 
         assertThatThrownBy(() -> runner(plan(3)).run(Map.of("deck.pdf", "v1"))).isInstanceOf(IllegalStateException.class).hasMessageContaining("different configuration");
+    }
+
+    @Test
+    void run_storesNoQuizWhoseCallNeverAnswered() {
+        when(model.call(any(Prompt.class))).thenAnswer(invocation -> {
+            Prompt prompt = invocation.getArgument(0);
+            if (prompt.getContents().contains("FACTUAL_ERROR") || prompt.getContents().contains("## Candidates")) {
+                return respondByRole(prompt);
+            }
+            throw new IllegalStateException("connection refused");
+        });
+        SweepPlan plan = new SweepPlan("outage-sweep", "unused.yml", 1,
+                new SweepPlan.Pool(2, 2, 4, Set.of(Language.DE), Set.of(QuestionType.SINGLE_CHOICE), Set.of(Difficulty.MEDIUM), SweepPlan.PoolScope.ALL),
+                new SweepPlan.Selection(40, 0.7, 1, 0), new SweepPlan.Agentic(3),
+                List.of(new SweepPlan.Configuration("agentic-m", SweepPlan.Approach.AGENTIC, "m", "m", "m")));
+
+        int assembled = runner(plan).run(Map.of("deck.pdf", "v1"));
+
+        assertThat(assembled).isZero();
+        assertThat(store.quizzes("outage-sweep")).isEmpty();
+    }
+
+    @Test
+    void hitCallFailure_isTrueOnlyForACallWithoutAResponse() {
+        CallRecord answered = new CallRecord("r", "generation", "m", 10, 5, 100, 0, "success", null, "MALFORMED_JSON");
+        CallRecord unanswered = new CallRecord("r", "filter", "m", null, null, 100, 2, "error", "connection refused", "TRANSPORT");
+
+        assertThat(SweepRunner.hitCallFailure(List.of(answered))).isFalse();
+        assertThat(SweepRunner.hitCallFailure(List.of(answered, unanswered))).isTrue();
     }
 
     @Test

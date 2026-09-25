@@ -140,6 +140,11 @@ public class SweepRunner {
                     if (!quiz.complete() && configuration.approach() == SweepPlan.Approach.TWO_PHASE) {
                         quiz = topUp(configuration, request, context, quiz);
                     }
+                    if (hitCallFailure(quiz.calls())) {
+                        log.warn("Request {} of {} hit a call that never answered; not stored, so that a resume generates it again", request.key(),
+                                configuration.configurationId());
+                        continue;
+                    }
                     String quizId = plan.sweep() + "-" + configuration.id() + "-" + request.key() + "-r" + repetition;
                     dependencies.store().saveQuiz(new StoredQuiz(quizId, plan.sweep(), configuration.configurationId(), request.courseKey(), request.key(), repetition,
                             quiz.complete(), mapper.writeValueAsString(quiz.accepted()), mapper.writeValueAsString(quiz.rejected()), mapper.writeValueAsString(quiz.calls()),
@@ -227,6 +232,18 @@ public class SweepRunner {
                 properties.filter().acceptThreshold(), properties.filter().gatingModes(), generator.model(), temperature(generator, properties.generation().temperature()),
                 properties.generation().maxAttempts(), judge.model(), temperature(judge, properties.filter().temperature()), properties.filter().maxAttempts(),
                 properties.batch().maxOutputAttempts(), poolCompetencies(courseKey));
+    }
+
+    /**
+     * Whether any call behind a quiz failed outright, that is, never produced a response: a transport error, a timeout or
+     * throttling. A quiz built on such a call is not stored, so {@link #run(Map)} answers the request again on resume; a
+     * response that arrived but could not be used is not a failure in this sense and its quiz is stored as it is.
+     *
+     * @param calls the calls a quiz was built from
+     * @return whether at least one of them has an outcome other than {@code "success"}
+     */
+    static boolean hitCallFailure(List<CallRecord> calls) {
+        return calls.stream().anyMatch(call -> !"success".equals(call.outcome()));
     }
 
     /**
